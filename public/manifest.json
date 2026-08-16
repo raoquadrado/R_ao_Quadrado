@@ -1,0 +1,13 @@
+{
+  "name": "R² — Veste a tua Essência",
+  "short_name": "R²",
+  "description": "Fornecedores, artigos, compras, clientes e vendas — tudo num só lugar.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F7F0E3",
+  "theme_color": "#3D1735",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
