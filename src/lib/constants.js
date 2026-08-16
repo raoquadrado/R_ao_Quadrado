@@ -18,12 +18,12 @@ export const DEFAULT_MARGIN_PCT = 55;
 // ---------- Versão da aplicação ----------
 export const APP_VERSION = "1.4.0";
 export const APP_RELEASE_DATE = "2026-08-14";
-// Histórico de alterações — a entrada [0] é sempre a mais recente. Cada uma tem "data"
-// (fiável, vem do dia em que a alteração foi feita) — sem hora exata, porque não há acesso
-// a um relógio em tempo real; dentro do mesmo dia, a ordem da lista é a ordem em que as
-// alterações foram feitas. Sempre que se pede uma alteração nova, acrescenta-se uma entrada
-// aqui, no topo.
+// Histórico de alterações — a entrada [0] é sempre a mais recente. "data" vem sempre do dia
+// certo. "hora" é uma aproximação (pesquisada na hora da alteração, não um relógio em tempo
+// real ligado ao sistema) — pode ter uma diferença de alguns minutos; fica omissa nas
+// entradas anteriores a esta funcionalidade, onde só a ordem dentro do dia é fiável.
 export const APP_CHANGELOG = [
+  { data: "2026-08-16", hora: "12:15", titulo: "Hora aproximada no changelog", notas: "Cada alteração passa a ficar também com uma hora aproximada (pesquisada na altura, sem relógio em tempo real ligado ao sistema)." },
   { data: "2026-08-16", titulo: "Logótipo atualizado", notas: "Nova imagem de marca, com tamanho maior na barra lateral." },
   { data: "2026-08-16", titulo: "Correção da saudação", notas: "O nome mostrado no Painel passou a ser sempre \"Rosa\" ou \"Rita\", independentemente do resto do endereço de email de login." },
   { data: "2026-08-16", titulo: "\"Sobre\" com changelog", notas: "A janela \"Sobre\" passou a mostrar o histórico de alterações por data, com a mais recente sempre no topo." },
