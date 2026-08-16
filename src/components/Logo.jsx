@@ -15,7 +15,7 @@ import { STORE_NAME, STORE_TAGLINE, LOGO_PATH } from "../lib/branding";
  */
 export default function Logo({ size = "md", showTagline = false, light = false }) {
   const [failed, setFailed] = useState(false);
-  const heights = { sm: "h-6", md: "h-9", lg: "h-14" };
+  const heights = { sm: "h-9", md: "h-12", lg: "h-16" };
 
   return (
     <div className="flex flex-col">

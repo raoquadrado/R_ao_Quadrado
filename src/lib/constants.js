@@ -16,13 +16,38 @@ export const DEFAULT_MARGIN_PCT = 55;
 // Valores por defeito, usados até a linha de "settings" carregar da base de dados (ou se
 // ainda não existir) — têm de bater certo com os defaults definidos no schema.sql.
 // ---------- Versão da aplicação ----------
-export const APP_VERSION = "1.0.0";
+export const APP_VERSION = "1.4.0";
 export const APP_RELEASE_DATE = "2026-08-14";
+// Histórico de alterações — a entrada [0] é sempre a mais recente. Cada uma tem "data"
+// (fiável, vem do dia em que a alteração foi feita) — sem hora exata, porque não há acesso
+// a um relógio em tempo real; dentro do mesmo dia, a ordem da lista é a ordem em que as
+// alterações foram feitas. Sempre que se pede uma alteração nova, acrescenta-se uma entrada
+// aqui, no topo.
 export const APP_CHANGELOG = [
-  {
-    versao: "1.0.0", data: "2026-08-14",
-    notas: "Primeira versão completa: Fornecedores, Compras, Artigos & Stock, Clientes, Vendas, Trocas, Centro de Conteúdo, Calendário, Diretos, Comunicação, Centro de Tarefas, Sugestões de Preço, Definições e Cópia de Segurança.",
-  },
+  { data: "2026-08-16", titulo: "Logótipo atualizado", notas: "Nova imagem de marca, com tamanho maior na barra lateral." },
+  { data: "2026-08-16", titulo: "Correção da saudação", notas: "O nome mostrado no Painel passou a ser sempre \"Rosa\" ou \"Rita\", independentemente do resto do endereço de email de login." },
+  { data: "2026-08-16", titulo: "\"Sobre\" com changelog", notas: "A janela \"Sobre\" passou a mostrar o histórico de alterações por data, com a mais recente sempre no topo." },
+  { data: "2026-08-16", titulo: "Correções de robustez", notas: "Exportar Excel e Restaurar Cópia de Segurança passaram a avisar claramente quando algo corre mal, em vez de falhar em silêncio." },
+  { data: "2026-08-16", titulo: "Pontos do cliente na lista de compras", notas: "Cada venda na ficha do cliente mostra agora o efeito nos pontos (+X, −X, ou por confirmar)." },
+  { data: "2026-08-16", titulo: "Mensagens ligadas a Encomendas/Pagamentos", notas: "Novas variáveis de mensagem: transportadora, prazo de envio, portes, IBAN e MB Way da Rosa/Rita." },
+  { data: "2026-08-16", titulo: "Mensagem dentro da edição de venda", notas: "Já não é preciso gravar e reabrir a partir da tabela para enviar uma mensagem ao cliente." },
+  { data: "2026-08-16", titulo: "Correção: eliminar venda de um direto", notas: "Passa a devolver o registo do direto a \"Por validar\", em vez de ficar preso a uma venda já eliminada." },
+  { data: "2026-08-16", titulo: "Preço de conjuntos nos Diretos", notas: "Conjunto completo usa o preço combinado (dividido proporcionalmente); peças vendidas em separado usam o preço individual." },
+  { data: "2026-08-16", titulo: "Venda parcial de conjuntos", notas: "Um conjunto com só uma peça sem stock já permite vender as restantes, com lista de espera só para a que falta." },
+  { data: "2026-08-16", titulo: "Aniversário do cliente no Centro de Tarefas", notas: "Tarefa automática \"Dar os parabéns\", com prazo já preenchido, visível também no Calendário." },
+  { data: "2026-08-16", titulo: "Link do artigo nas Vendas", notas: "O nome do artigo na tabela de Vendas passou a abrir a ficha completa." },
+  { data: "2026-08-16", titulo: "Correção: alertas de foto/etiqueta", notas: "Artigos \"Sem Reposição\" ou \"Pausados\" deixaram de entrar nos alertas de fotografia e etiqueta, tal como já acontecia no stock." },
+  { data: "2026-08-16", titulo: "Botão \"← Voltar\"", notas: "Qualquer atalho (alerta, tarefa, pesquisa) passou a permitir voltar exatamente a onde se estava antes." },
+  { data: "2026-08-16", titulo: "Análise de engenharia", notas: "Tratamento de erros centralizado em todos os formulários — avisos claros sempre que uma gravação falha." },
+  { data: "2026-08-16", titulo: "Novos KPIs do Painel", notas: "Nova secção \"Diretos, Conteúdo & Trocas\", com o valor de stock em risco de liquidação." },
+  { data: "2026-08-16", titulo: "Correção: janela de troca", notas: "A definição de dias para troca não estava a chegar à página de Trocas — corrigido." },
+  { data: "2026-08-15", titulo: "Datas de Marketing parametrizáveis", notas: "Lista de datas editável nas Definições, para gerar sozinha sugestões de conteúdo." },
+  { data: "2026-08-15", titulo: "Modo de Teste", notas: "Interruptor para experimentar a app sem qualquer risco para os dados reais — isolamento completo, incluindo stock." },
+  { data: "2026-08-15", titulo: "Dados da Empresa, Encomendas e Pagamentos", notas: "Novas secções nas Definições — logótipo, redes sociais, portes, IBAN e MB Way." },
+  { data: "2026-08-15", titulo: "Cópia de Segurança", notas: "Descarregar e restaurar todos os dados da app num ficheiro." },
+  { data: "2026-08-15", titulo: "\"Sobre\"", notas: "Janela com a versão da aplicação e o manual de utilizador." },
+  { data: "2026-08-15", titulo: "Definições parametrizáveis", notas: "Limiares e prazos usados nos alertas e regras automáticas passaram a ser editáveis, em vez de fixos no código." },
+  { data: "2026-08-14", titulo: "v1.0.0 — Primeira versão completa", notas: "Fornecedores, Compras, Artigos & Stock, Clientes, Vendas, Trocas, Centro de Conteúdo, Calendário, Diretos, Comunicação, Centro de Tarefas e Sugestões de Preço." },
 ];
 
 export const DEFAULT_SETTINGS = {
