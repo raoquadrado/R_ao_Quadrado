@@ -49,7 +49,10 @@ export default function AboutModal({ onClose }) {
             <div className="flex flex-col gap-2">
               {grupo.itens.map((entrada, i) => (
                 <div key={i} className="border-l-2 border-line pl-3">
-                  <div className="text-sm font-medium text-ink">{entrada.titulo}</div>
+                  <div className="text-sm font-medium text-ink">
+                    {entrada.titulo}
+                    {entrada.hora && <span className="text-xs font-mono font-normal text-stone ml-1.5">· {entrada.hora}</span>}
+                  </div>
                   {entrada.notas && <p className="text-xs text-stone mt-0.5">{entrada.notas}</p>}
                 </div>
               ))}
