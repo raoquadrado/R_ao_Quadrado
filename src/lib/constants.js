@@ -16,7 +16,7 @@ export const DEFAULT_MARGIN_PCT = 55;
 // Valores por defeito, usados até a linha de "settings" carregar da base de dados (ou se
 // ainda não existir) — têm de bater certo com os defaults definidos no schema.sql.
 // ---------- Versão da aplicação ----------
-export const APP_VERSION = "1.7.0";
+export const APP_VERSION = "1.8.0";
 export const APP_RELEASE_DATE = "2026-08-14";
 // Histórico de alterações — a entrada [0] é sempre a mais recente. Cada uma tem "data"
 // (fiável, vem do dia em que a alteração foi feita) e, sempre que a Rosa a fornece
@@ -24,6 +24,16 @@ export const APP_RELEASE_DATE = "2026-08-14";
 // ordem da lista é a ordem em que as alterações foram feitas. Sempre que se pede uma
 // alteração nova, acrescenta-se uma entrada aqui, no topo.
 export const APP_CHANGELOG = [
+  { data: "2026-08-22", hora: "23:47", titulo: "Diretos: trocar tamanho dentro de um conjunto", notas: "Junto a cada peça de um conjunto, um botão \"🔁 tamanho\" troca-a por outro tamanho do mesmo artigo (mesmo SKU base) — útil quando só se sabe o tamanho do cliente já durante o direto. Só afeta esse conjunto, a partir dali; vendas já registadas mantêm-se." },
+  { data: "2026-08-22", hora: "23:47", titulo: "Correção: botão \"← Voltar\" em falta ao pedir troca", notas: "O atalho \"🔁 Pedir troca\", numa venda, esqueceu-se de avisar o histórico de navegação — por isso o botão \"← Voltar\" nunca aparecia depois. Corrigido." },
+  { data: "2026-08-22", hora: "23:47", titulo: "Artigos: aplicar preço de venda com um clique", notas: "Um artigo vendável ainda sem preço mostra \"✨ aplicar\" na tabela — aplica logo a sugestão da margem-alvo, sem abrir a ficha. Novo filtro na coluna \"Venda\" (Com preço / Sem preço) e novo alerta no Painel para artigos vendáveis sem preço definido." },
+  { data: "2026-08-22", hora: "23:47", titulo: "Compras: ordenar por data e duplicar", notas: "A lista passa a mostrar sempre as compras mais recentes primeiro. Novo botão \"⎘ Duplicar\" copia fornecedor, itens e preços para uma compra nova (código, fatura e datas em branco) — útil para comprar o mesmo, ao mesmo preço, mas noutro tamanho ou cor." },
+  { data: "2026-08-22", hora: "23:47", titulo: "Pesquisa global cobre Vendas e Encomendas", notas: "Ctrl/⌘+K passa a procurar também por código de venda, artigo vendido, código de encomenda ou código de rastreio." },
+  { data: "2026-08-22", hora: "23:47", titulo: "Painel: tempo médio de preparação de encomenda", notas: "Novo KPI em \"Vendas & Encomendas\" — dias entre a encomenda ser criada e ser enviada, só nas já enviadas." },
+  { data: "2026-08-21", hora: "13:10", titulo: "Novo módulo: Marca de Água", notas: "Nova secção para carregar fotos das peças e sobrepor o logotipo da loja antes de publicar — posição, tamanho, rotação e opacidade ajustáveis, deteção automática do centro da peça, várias marcas por foto, 4 formatos de exportação, e download em lote. O logotipo fica guardado entre sessões." },
+  { data: "2026-08-21", hora: "12:36", titulo: "Novo módulo: Consumos e Transformações", notas: "Dois botões em Artigos & Stock: \"📉 Registar consumo\" (baixa avulsa de material interno, com motivo) e \"🔄 Registar transformação\" (consome vários materiais e produz um artigo novo, ex: papel + tinteiro → etiquetas — com receitas reutilizáveis em Definições). Lista de últimos movimentos com botão para anular." },
+  { data: "2026-08-21", hora: "06:51", titulo: "Revisão geral: Lixeira, Histórico e Exportar Excel", notas: "Embalagens e Transformações passam a poder ser recuperadas na Lixeira; Trocas, Diretos e Modelos de mensagem também (já eram eliminados com segurança, mas nunca lá apareciam). Exportar Excel ganha as folhas Encomendas, Embalagens e Transformações. Histórico com rótulos e filtro para todas as tabelas novas." },
+  { data: "2026-08-20", hora: "22:11", titulo: "Painel: Encomendas e Material Interno com KPIs próprios", notas: "\"Vendas & Encomendas\" ganha total de encomendas, em preparação, prontas a enviar, valor em aberto, gasto em embalamento/etiquetas. Material Interno ganha KPI \"Parado\" (sem consumo há mais de X dias) e alerta próprio." },
   { data: "2026-08-18", hora: "19:44", titulo: "Módulo de Etiquetas e Embalagens", notas: "Novo em Definições: Tipos de Embalagem (ex: \"Normal\", \"Premium\") são uma receita fixa de material interno — nunca etiquetas. Escolher a Embalagem passa a ser obrigatório em toda a Encomenda, e dá baixa de stock de uma vez a todos os artigos da receita." },
   { data: "2026-08-18", hora: "19:44", titulo: "Correção: Material Interno já não aparece para vender", notas: "Etiquetas, caixas, sacos e outro material interno deixam de aparecer nos seletores de artigo em Vendas, Trocas, Centro de Conteúdo e Diretos." },
   { data: "2026-08-18", hora: "19:44", titulo: "Encomendas passam a viver dentro de Vendas", notas: "Sem aba própria — as vendas da mesma encomenda aparecem agrupadas na tabela de Vendas. Nova possibilidade de duas Faturas por encomenda (Rosa e Rita), cada venda mostra sempre a de quem a vendeu." },
