@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { insertRow, updateRow, deleteRow } from "../lib/useRealtimeTable";
-import { EXCHANGE_ESTADOS, EXCHANGE_ESTADO_COLORS, EXCHANGE_MOTIVOS, DEFAULT_SETTINGS } from "../lib/constants";
+import { EXCHANGE_ESTADOS, EXCHANGE_ESTADO_COLORS, EXCHANGE_MOTIVOS, DEFAULT_SETTINGS, tipoUsoInterno } from "../lib/constants";
 import { money, fmtDate, todayISO, uid, displaySku, sugerirCodigoPorData, dataLimiteTroca } from "../lib/computations";
 import { useToast, useConfirm } from "../lib/overlays";
 import { Field, Button, Badge, ModalShell, ModalActions, SearchBox, TabHeader, RowActions, EmptyRow, inputCls, useColumnFilters, FilterTh } from "../components/ui";
@@ -11,7 +11,7 @@ const empty = (presetSaleId) => ({
   stock_ajustado: false, data_pedido: todayISO(), data_rececao: "", notas: "",
 });
 
-export default function Exchanges({ exchanges, sales, articlesComputed, clientName, articleName, presetSaleId, onConsumedPresetSale, autoOpenNew, onConsumedAutoOpen, autoOpenEditId, onConsumedAutoOpenEdit, settings }) {
+export default function Exchanges({ exchanges, sales, articlesComputed, tipos, clientName, articleName, presetSaleId, onConsumedPresetSale, autoOpenNew, onConsumedAutoOpen, autoOpenEditId, onConsumedAutoOpenEdit, settings }) {
   const [q, setQ] = useState("");
   const [modal, setModal] = useState(null);
   const notify = useToast();
@@ -109,6 +109,7 @@ export default function Exchanges({ exchanges, sales, articlesComputed, clientNa
           exchanges={exchanges}
           sales={sales}
           articlesComputed={articlesComputed}
+          tipos={tipos}
           clientName={clientName}
           articleName={articleName}
           janelaTroca={janelaTroca}
@@ -125,7 +126,7 @@ export default function Exchanges({ exchanges, sales, articlesComputed, clientNa
   );
 }
 
-function ExchangeModal({ data, isNew, exchanges, sales, articlesComputed, clientName, articleName, onClose, onSave, janelaTroca }) {
+function ExchangeModal({ data, isNew, exchanges, sales, articlesComputed, tipos, clientName, articleName, onClose, onSave, janelaTroca }) {
   const [f, setF] = useState({ ...data });
   const [error, setError] = useState("");
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -208,7 +209,7 @@ function ExchangeModal({ data, isNew, exchanges, sales, articlesComputed, client
         <Field label="4. Novo artigo pretendido">
           <select className={inputCls} value={f.novo_article_id} onChange={(e) => recalcularDiferenca(e.target.value)}>
             <option value="">— escolher —</option>
-            {articlesComputed.map((a) => (
+            {articlesComputed.filter((a) => !tipoUsoInterno(a.tipo, tipos) || a.id === f.novo_article_id).map((a) => (
               <option key={a.id} value={a.id}>{displaySku(a)} — {a.artigo} — {money(a.valor_venda)} (stock: {a.stockAtual})</option>
             ))}
           </select>

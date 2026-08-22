@@ -1,10 +1,13 @@
 import { useState, useEffect } from "react";
+import { supabase } from "../supabaseClient";
 import { updateRow, insertRow, deleteRow } from "../lib/useRealtimeTable";
-import { DEFAULT_SETTINGS } from "../lib/constants";
+import { getTestMode } from "../lib/testMode";
+import { uid, displaySku } from "../lib/computations";
+import { DEFAULT_SETTINGS, tipoUsoInterno, tipoEhEtiqueta } from "../lib/constants";
 import { gerarCopiaSeguranca, descarregarJSON, restaurarCopiaSeguranca } from "../lib/backup";
 import { uploadLogo } from "../lib/photoStorage";
 import { useToast, useConfirm } from "../lib/overlays";
-import { Field, Button, inputCls } from "../components/ui";
+import { Field, Button, inputCls, ModalShell, ModalActions, EmptyRow } from "../components/ui";
 
 const CAMPOS = [
   {
@@ -58,7 +61,7 @@ const CAMPOS_ENCOMENDAS = [
   { key: "portes_gratis_acima", label: "Portes grátis a partir de (€)", tipo: "number", ajuda: "Deixar em branco se não houver portes grátis." },
 ];
 
-export default function Settings({ settings, marketingDates }) {
+export default function Settings({ settings, marketingDates, tipos, cores, padroes, articlesComputed, embalagens, embalagemItens, transformacoes, transformacaoItens }) {
   const [f, setF] = useState({ ...DEFAULT_SETTINGS, ...settings });
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -135,6 +138,118 @@ export default function Settings({ settings, marketingDates }) {
     if (!ok) return;
     await deleteRow("marketing_dates", d.id);
     notify("Data removida.");
+  }
+
+  const [novoTipo, setNovoTipo] = useState({ grupo: "", peca: "", codigo: "", permite_venda: true, tem_tamanho: false });
+  const [addingTipo, setAddingTipo] = useState(false);
+  const gruposExistentes = [...new Set((tipos || []).map((t) => t.grupo))].sort((a, b) => a.localeCompare(b, "pt"));
+  const tiposOrdenados = [...(tipos || [])].sort((a, b) => a.grupo.localeCompare(b.grupo, "pt") || a.peca.localeCompare(b.peca, "pt"));
+
+  async function handleAddTipo() {
+    const grupo = novoTipo.grupo.trim();
+    const peca = novoTipo.peca.trim();
+    const codigo = novoTipo.codigo.trim().toUpperCase();
+    if (!grupo) { notify("Indica o Grupo (ex: Vestuário, Embalagens).", "error"); return; }
+    if (!peca) { notify("Indica a Peça (ex: Blazer, Saco de plástico 10x10cm).", "error"); return; }
+    if (!codigo) { notify("Indica um Código para gerar o SKU (ex: BLZ).", "error"); return; }
+    const duplicadoPeca = (tipos || []).some((t) => !t.deleted_at && t.peca.trim().toLowerCase() === peca.toLowerCase());
+    if (duplicadoPeca) { notify(`Já existe uma Peça "${peca}" — escolhe outro nome.`, "error"); return; }
+    const duplicadoCodigo = (tipos || []).some((t) => !t.deleted_at && t.codigo.trim().toUpperCase() === codigo);
+    if (duplicadoCodigo) { notify(`Já existe um Tipo com o código "${codigo}" — escolhe outro.`, "error"); return; }
+    setAddingTipo(true);
+    try {
+      await insertRow("article_tipos", { grupo, peca, codigo, permite_venda: !!novoTipo.permite_venda, tem_tamanho: !!novoTipo.tem_tamanho, ativo: true });
+      setNovoTipo({ grupo: "", peca: "", codigo: "", permite_venda: true, tem_tamanho: false });
+      notify("Tipo de artigo adicionado.");
+    } catch (err) {
+      notify(err.message || "Não foi possível adicionar o Tipo.", "error");
+    } finally {
+      setAddingTipo(false);
+    }
+  }
+  async function toggleTipoCampo(t, campo) {
+    await updateRow("article_tipos", t.id, { [campo]: !t[campo] });
+  }
+  async function handleTipoField(t, campo, valor) {
+    if (valor === t[campo]) return;
+    await updateRow("article_tipos", t.id, { [campo]: valor });
+  }
+  async function handleDeleteTipo(t) {
+    const ok = await confirm({ title: "Eliminar Tipo de artigo?", message: `"${t.peca}" deixa de aparecer nas opções de Tipo — artigos já criados com este Tipo mantêm-se, só a opção desaparece da lista.`, confirmLabel: "Eliminar" });
+    if (!ok) return;
+    await deleteRow("article_tipos", t.id);
+    notify("Tipo removido.");
+  }
+
+  // ---------- Cores e Padrões (mesma forma simples: valor + ativo) ----------
+  const [novaCor, setNovaCor] = useState("");
+  const [addingCor, setAddingCor] = useState(false);
+  const coresOrdenadas = [...(cores || [])].sort((a, b) => a.valor.localeCompare(b.valor, "pt"));
+  const [novoPadrao, setNovoPadrao] = useState("");
+  const [addingPadrao, setAddingPadrao] = useState(false);
+  const padroesOrdenados = [...(padroes || [])].sort((a, b) => a.valor.localeCompare(b.valor, "pt"));
+
+  async function handleAddValor(tabela, valorBruto, lista, setValor, setAdding) {
+    const valor = valorBruto.trim();
+    if (!valor) { notify("Escreve um valor antes de adicionar.", "error"); return; }
+    if ((lista || []).some((v) => !v.deleted_at && v.valor.trim().toLowerCase() === valor.toLowerCase())) {
+      notify(`"${valor}" já existe nesta lista.`, "error"); return;
+    }
+    setAdding(true);
+    try {
+      await insertRow(tabela, { valor, ativo: true });
+      setValor("");
+    } catch (err) {
+      notify(err.message || "Não foi possível adicionar.", "error");
+    } finally {
+      setAdding(false);
+    }
+  }
+  async function toggleValorAtivo(tabela, v) {
+    await updateRow(tabela, v.id, { ativo: v.ativo === false ? true : false });
+  }
+  async function handleDeleteValor(tabela, v, label) {
+    const ok = await confirm({ title: `Eliminar ${label}?`, message: `"${v.valor}" deixa de aparecer nas opções — artigos já criados com este valor mantêm-se.`, confirmLabel: "Eliminar" });
+    if (!ok) return;
+    await deleteRow(tabela, v.id);
+    notify(`${label} removido(a).`);
+  }
+
+  // ---------- Etiquetas e Embalagens ----------
+  const [embalagemModal, setEmbalagemModal] = useState(null); // { embalagem } — a criar/editar
+  const embalagensOrdenadas = [...(embalagens || [])].sort((a, b) => a.nome.localeCompare(b.nome, "pt"));
+  const itensPorEmbalagem = (embalagemId) => (embalagemItens || []).filter((it) => it.embalagem_id === embalagemId);
+  // Candidatos a entrar numa receita: só material interno, nunca etiquetas (essas só saem
+  // pelo pisco "Peça já etiquetada" de cada venda — ver secção 6/9).
+  const artigosParaEmbalagem = (articlesComputed || []).filter((a) => tipoUsoInterno(a.tipo, tipos) && !tipoEhEtiqueta(a.tipo, tipos));
+
+  async function toggleEmbalagemAtiva(e) {
+    await updateRow("embalagens", e.id, { ativo: e.ativo === false ? true : false });
+  }
+  async function handleDeleteEmbalagem(e) {
+    const ok = await confirm({ title: "Eliminar Tipo de Embalagem?", message: `"${e.nome}" deixa de aparecer nas opções — encomendas já criadas com esta Embalagem mantêm-se.`, confirmLabel: "Eliminar" });
+    if (!ok) return;
+    await deleteRow("embalagens", e.id);
+    notify("Tipo de Embalagem removido.");
+  }
+
+  // ---------- Transformações ----------
+  const [transformacaoModal, setTransformacaoModal] = useState(null); // { transformacao } — a criar/editar
+  const transformacoesOrdenadas = [...(transformacoes || [])].sort((a, b) => a.nome.localeCompare(b.nome, "pt"));
+  const itensPorTransformacao = (transformacaoId) => (transformacaoItens || []).filter((it) => it.transformacao_id === transformacaoId);
+  // Candidatos a entrar numa receita de transformação (inputs ou output): qualquer material
+  // interno, incluindo etiquetas — ao contrário da Embalagem, aqui faz sentido produzir
+  // etiquetas a partir de outros materiais (ex: papel + tinteiro → etiquetas).
+  const artigosParaTransformacao = (articlesComputed || []).filter((a) => tipoUsoInterno(a.tipo, tipos));
+
+  async function toggleTransformacaoAtiva(t) {
+    await updateRow("transformacoes", t.id, { ativo: t.ativo === false ? true : false });
+  }
+  async function handleDeleteTransformacao(t) {
+    const ok = await confirm({ title: "Eliminar Tipo de Transformação?", message: `"${t.nome}" deixa de aparecer nas opções — transformações já executadas mantêm-se.`, confirmLabel: "Eliminar" });
+    if (!ok) return;
+    await deleteRow("transformacoes", t.id);
+    notify("Tipo de Transformação removido.");
   }
 
   async function handleBackup() {
@@ -349,6 +464,272 @@ export default function Settings({ settings, marketingDates }) {
       ))}
 
       <div className="mb-6">
+        <h2 className="font-display text-base font-semibold text-ink mb-3">🏷️ Tipos de Artigo</h2>
+        <div className="bg-white border border-line rounded-xl p-4">
+          <p className="text-stone text-sm mb-3">
+            Estes são os Tipos disponíveis ao criar ou editar um artigo (secção Artigos & Stock). Cada Tipo pertence a um Grupo (ex: "Vestuário", "Embalagens") e tem um Código que gera o SKU automaticamente. "Permite venda?" a "Não" marca sozinho o pisco "Material interno" 📦 nesse artigo — para material de apoio ao negócio (etiquetas, caixas, sacos de envio, cabides, etc.) que nunca é vendido a clientes, só controlado em stock. "Etiqueta física?" marca o(s) Tipo(s) (normalmente "Etiquetas") de onde sai 1 unidade sempre que se assinala "Peça já etiquetada" noutro artigo. Acrescentem, editem ou eliminem os que fizerem sentido para a loja.
+          </p>
+          <div className="overflow-auto mb-3">
+            <table>
+              <thead><tr><th>Grupo</th><th>Peça</th><th>Código</th><th>Permite venda?</th><th>Tem tamanho?</th><th>Etiqueta física?</th><th>Ativo</th><th></th></tr></thead>
+              <tbody>
+                {tiposOrdenados.length === 0 && (
+                  <tr><td colSpan={8} className="text-stone text-sm py-3 text-center">Ainda não há Tipos de artigo definidos.</td></tr>
+                )}
+                {tiposOrdenados.map((t) => (
+                  <tr key={t.id} className={t.ativo === false ? "opacity-50" : ""}>
+                    <td>
+                      <input list="grupos-existentes" defaultValue={t.grupo} className={`${inputCls} !py-1 text-xs`}
+                        onBlur={(e) => handleTipoField(t, "grupo", e.target.value.trim())} />
+                    </td>
+                    <td>
+                      <input defaultValue={t.peca} className={`${inputCls} !py-1 text-xs`}
+                        onBlur={(e) => handleTipoField(t, "peca", e.target.value.trim())} />
+                    </td>
+                    <td>
+                      <input defaultValue={t.codigo} className={`${inputCls} !py-1 text-xs font-mono w-20`}
+                        onBlur={(e) => handleTipoField(t, "codigo", e.target.value.trim().toUpperCase())} />
+                    </td>
+                    <td>
+                      <button type="button" onClick={() => toggleTipoCampo(t, "permite_venda")} title={t.permite_venda ? "Permite venda — clicar para desligar" : "Não permite venda (material interno) — clicar para ligar"}>
+                        {t.permite_venda ? "✅ Sim" : "📦 Não"}
+                      </button>
+                    </td>
+                    <td>
+                      <button type="button" onClick={() => toggleTipoCampo(t, "tem_tamanho")} title={t.tem_tamanho ? "Tem tamanho — clicar para desligar" : "Sem tamanho — clicar para ligar"}>
+                        {t.tem_tamanho ? "✅ Sim" : "⬜ Não"}
+                      </button>
+                    </td>
+                    <td>
+                      <button type="button" onClick={() => toggleTipoCampo(t, "eh_etiqueta")} title={t.eh_etiqueta ? "Etiqueta física — clicar para desligar" : "Clicar para marcar como etiqueta física"}>
+                        {t.eh_etiqueta ? "🏷️ Sim" : "⬜ Não"}
+                      </button>
+                    </td>
+                    <td>
+                      <button type="button" onClick={() => toggleTipoCampo(t, "ativo")} title={t.ativo === false ? "Ativar" : "Desativar"}>
+                        {t.ativo === false ? "⬜" : "✅"}
+                      </button>
+                    </td>
+                    <td>
+                      <button type="button" onClick={() => handleDeleteTipo(t)} className="text-stone hover:text-clay-dark text-xs">✕</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <datalist id="grupos-existentes">
+              {gruposExistentes.map((g) => <option key={g} value={g} />)}
+            </datalist>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_90px_auto_auto_auto_auto] gap-2 items-end">
+            <Field label="Grupo">
+              <input list="grupos-existentes" className={inputCls} value={novoTipo.grupo} onChange={(e) => setNovoTipo({ ...novoTipo, grupo: e.target.value })} placeholder="ex: Embalagens" />
+            </Field>
+            <Field label="Peça">
+              <input className={inputCls} value={novoTipo.peca} onChange={(e) => setNovoTipo({ ...novoTipo, peca: e.target.value })} placeholder="ex: Saco de plástico 10x10cm" />
+            </Field>
+            <Field label="Código">
+              <input className={`${inputCls} font-mono`} value={novoTipo.codigo} onChange={(e) => setNovoTipo({ ...novoTipo, codigo: e.target.value.toUpperCase() })} placeholder="ex: SAC" maxLength={6} />
+            </Field>
+            <label className="flex items-center gap-1.5 text-xs text-stone pb-2">
+              <input type="checkbox" checked={novoTipo.permite_venda} onChange={(e) => setNovoTipo({ ...novoTipo, permite_venda: e.target.checked })} />
+              Permite venda?
+            </label>
+            <label className="flex items-center gap-1.5 text-xs text-stone pb-2">
+              <input type="checkbox" checked={novoTipo.tem_tamanho} onChange={(e) => setNovoTipo({ ...novoTipo, tem_tamanho: e.target.checked })} />
+              Tem tamanho?
+            </label>
+            <label className="flex items-center gap-1.5 text-xs text-stone pb-2">
+              <input type="checkbox" checked={novoTipo.eh_etiqueta} onChange={(e) => setNovoTipo({ ...novoTipo, eh_etiqueta: e.target.checked })} />
+              Etiqueta física?
+            </label>
+            <Button variant="primary" onClick={handleAddTipo} disabled={addingTipo}>{addingTipo ? "A adicionar…" : "+ Adicionar"}</Button>
+          </div>
+          <p className="text-stone text-[11px] mt-3">💡 Eliminar um Tipo só o remove das opções para novos artigos — artigos já criados com esse Tipo não são afetados.</p>
+        </div>
+      </div>
+
+      <div className="mb-6">
+        <h2 className="font-display text-base font-semibold text-ink mb-3">🎨 Cores e Padrões</h2>
+        <div className="bg-white border border-line rounded-xl p-4">
+          <p className="text-stone text-sm mb-3">
+            As listas de Cor e Padrão do formulário de artigo (secção Artigos & Stock) — dois campos independentes desde a última atualização. Um artigo novo nasce sempre com a cor "N/A" e o padrão "Liso". Acrescentem, desliguem ou eliminem os que fizerem sentido para a loja.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <h3 className="text-xs font-semibold text-stone uppercase tracking-wide mb-2">Cores</h3>
+              <div className="overflow-auto mb-2 max-h-60 border border-line rounded-lg">
+                <table>
+                  <thead><tr><th>Cor</th><th>Ativa</th><th></th></tr></thead>
+                  <tbody>
+                    {coresOrdenadas.length === 0 && (
+                      <tr><td colSpan={3} className="text-stone text-sm py-3 text-center">Sem cores definidas.</td></tr>
+                    )}
+                    {coresOrdenadas.map((c) => (
+                      <tr key={c.id} className={c.ativo === false ? "opacity-50" : ""}>
+                        <td>{c.valor}{c.valor === "N/A" && <span className="text-stone text-[11px]"> (por defeito)</span>}</td>
+                        <td>
+                          <button type="button" onClick={() => toggleValorAtivo("article_cores", c)} title={c.ativo === false ? "Ativar" : "Desativar"} disabled={c.valor === "N/A"}>
+                            {c.ativo === false ? "⬜" : "✅"}
+                          </button>
+                        </td>
+                        <td>
+                          {c.valor !== "N/A" && <button type="button" onClick={() => handleDeleteValor("article_cores", c, "Cor")} className="text-stone hover:text-clay-dark text-xs">✕</button>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex gap-2">
+                <input className={inputCls} value={novaCor} onChange={(e) => setNovaCor(e.target.value)} placeholder="ex: Verde-alface" onKeyDown={(e) => e.key === "Enter" && handleAddValor("article_cores", novaCor, cores, setNovaCor, setAddingCor)} />
+                <Button variant="primary" onClick={() => handleAddValor("article_cores", novaCor, cores, setNovaCor, setAddingCor)} disabled={addingCor}>+ Adicionar</Button>
+              </div>
+            </div>
+            <div>
+              <h3 className="text-xs font-semibold text-stone uppercase tracking-wide mb-2">Padrões</h3>
+              <div className="overflow-auto mb-2 max-h-60 border border-line rounded-lg">
+                <table>
+                  <thead><tr><th>Padrão</th><th>Ativo</th><th></th></tr></thead>
+                  <tbody>
+                    {padroesOrdenados.length === 0 && (
+                      <tr><td colSpan={3} className="text-stone text-sm py-3 text-center">Sem padrões definidos.</td></tr>
+                    )}
+                    {padroesOrdenados.map((p) => (
+                      <tr key={p.id} className={p.ativo === false ? "opacity-50" : ""}>
+                        <td>{p.valor}{p.valor === "Liso" && <span className="text-stone text-[11px]"> (por defeito)</span>}</td>
+                        <td>
+                          <button type="button" onClick={() => toggleValorAtivo("article_padroes", p)} title={p.ativo === false ? "Ativar" : "Desativar"} disabled={p.valor === "Liso"}>
+                            {p.ativo === false ? "⬜" : "✅"}
+                          </button>
+                        </td>
+                        <td>
+                          {p.valor !== "Liso" && <button type="button" onClick={() => handleDeleteValor("article_padroes", p, "Padrão")} className="text-stone hover:text-clay-dark text-xs">✕</button>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex gap-2">
+                <input className={inputCls} value={novoPadrao} onChange={(e) => setNovoPadrao(e.target.value)} placeholder="ex: Aos quadrados" onKeyDown={(e) => e.key === "Enter" && handleAddValor("article_padroes", novoPadrao, padroes, setNovoPadrao, setAddingPadrao)} />
+                <Button variant="primary" onClick={() => handleAddValor("article_padroes", novoPadrao, padroes, setNovoPadrao, setAddingPadrao)} disabled={addingPadrao}>+ Adicionar</Button>
+              </div>
+            </div>
+          </div>
+          <p className="text-stone text-[11px] mt-3">💡 "N/A" e "Liso" nunca podem ser desativados nem eliminados — são sempre os valores por defeito de um artigo novo.</p>
+        </div>
+      </div>
+
+      <div className="mb-6">
+        <h2 className="font-display text-base font-semibold text-ink mb-3">📦 Etiquetas e Embalagens</h2>
+        <div className="bg-white border border-line rounded-xl p-4">
+          <p className="text-stone text-sm mb-3">
+            Um Tipo de Embalagem (ex: "Normal", "Premium") é uma receita fixa de material interno — sacos, papel de seda, cartões, autocolantes… — nunca etiquetas, que continuam a dar baixa só pelo pisco "Peça já etiquetada" de cada venda. Ao gerar uma Encomenda (secção Vendas), escolher o Tipo de Embalagem é obrigatório, e dá baixa de uma vez a todos os artigos da receita.
+          </p>
+          <div className="overflow-auto mb-3">
+            <table>
+              <thead><tr><th>Nome</th><th>Receita</th><th>Ativo</th><th></th></tr></thead>
+              <tbody>
+                {embalagensOrdenadas.length === 0 && (
+                  <tr><td colSpan={4} className="text-stone text-sm py-3 text-center">Ainda não há Tipos de Embalagem definidos.</td></tr>
+                )}
+                {embalagensOrdenadas.map((e) => {
+                  const itens = itensPorEmbalagem(e.id);
+                  return (
+                    <tr key={e.id} className={e.ativo === false ? "opacity-50" : ""}>
+                      <td className="font-medium">{e.nome}</td>
+                      <td className="text-stone text-xs">
+                        {itens.length === 0 ? "sem itens" : itens.map((it) => {
+                          const a = (articlesComputed || []).find((x) => x.id === it.article_id);
+                          return `${a?.artigo || "artigo removido"} ×${it.quantidade}`;
+                        }).join(", ")}
+                      </td>
+                      <td>
+                        <button type="button" onClick={() => toggleEmbalagemAtiva(e)} title={e.ativo === false ? "Ativar" : "Desativar"}>
+                          {e.ativo === false ? "⬜" : "✅"}
+                        </button>
+                      </td>
+                      <td className="flex gap-2">
+                        <button type="button" onClick={() => setEmbalagemModal({ embalagem: { ...e, itens: itensPorEmbalagem(e.id) } })} className="text-purple-600 text-xs">editar</button>
+                        <button type="button" onClick={() => handleDeleteEmbalagem(e)} className="text-stone hover:text-clay-dark text-xs">✕</button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <Button variant="primary" onClick={() => setEmbalagemModal({ embalagem: null })}>+ Novo Tipo de Embalagem</Button>
+          <p className="text-stone text-[11px] mt-3">💡 Eliminar um Tipo de Embalagem só o remove das opções para novas encomendas — encomendas já criadas com essa Embalagem, e o stock já consumido, não são afetados.</p>
+        </div>
+      </div>
+
+      {embalagemModal && (
+        <EmbalagemModal
+          embalagem={embalagemModal.embalagem}
+          artigos={artigosParaEmbalagem}
+          onClose={() => setEmbalagemModal(null)}
+          onSaved={() => { notify(embalagemModal.embalagem ? "Tipo de Embalagem atualizado." : "Tipo de Embalagem criado."); setEmbalagemModal(null); }}
+        />
+      )}
+
+      <div className="mb-6">
+        <h2 className="font-display text-base font-semibold text-ink mb-3">🔄 Transformações</h2>
+        <div className="bg-white border border-line rounded-xl p-4">
+          <p className="text-stone text-sm mb-3">
+            Um Tipo de Transformação consome vários materiais internos (inputs) e dá entrada de stock a um único artigo produzido (ex: 20 folhas de papel + 5ml de tinteiro → +100 etiquetas). Guardar aqui uma receita é opcional — em Artigos, o botão "🔄 Registar transformação" também permite fazer uma transformação avulsa, sem guardar nada aqui.
+          </p>
+          <div className="overflow-auto mb-3">
+            <table>
+              <thead><tr><th>Nome</th><th>Produz</th><th>Consome</th><th>Ativo</th><th></th></tr></thead>
+              <tbody>
+                {transformacoesOrdenadas.length === 0 && (
+                  <tr><td colSpan={5} className="text-stone text-sm py-3 text-center">Ainda não há Tipos de Transformação definidos.</td></tr>
+                )}
+                {transformacoesOrdenadas.map((t) => {
+                  const itens = itensPorTransformacao(t.id);
+                  const outputArtigo = (articlesComputed || []).find((a) => a.id === t.output_article_id);
+                  return (
+                    <tr key={t.id} className={t.ativo === false ? "opacity-50" : ""}>
+                      <td className="font-medium">{t.nome}</td>
+                      <td className="text-stone text-xs">+{t.output_quantidade} {outputArtigo?.artigo || "artigo removido"}</td>
+                      <td className="text-stone text-xs">
+                        {itens.length === 0 ? "sem itens" : itens.map((it) => {
+                          const a = (articlesComputed || []).find((x) => x.id === it.article_id);
+                          return `${a?.artigo || "artigo removido"} ×${it.quantidade}`;
+                        }).join(", ")}
+                      </td>
+                      <td>
+                        <button type="button" onClick={() => toggleTransformacaoAtiva(t)} title={t.ativo === false ? "Ativar" : "Desativar"}>
+                          {t.ativo === false ? "⬜" : "✅"}
+                        </button>
+                      </td>
+                      <td className="flex gap-2">
+                        <button type="button" onClick={() => setTransformacaoModal({ transformacao: { ...t, itens: itensPorTransformacao(t.id) } })} className="text-purple-600 text-xs">editar</button>
+                        <button type="button" onClick={() => handleDeleteTransformacao(t)} className="text-stone hover:text-clay-dark text-xs">✕</button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <Button variant="primary" onClick={() => setTransformacaoModal({ transformacao: null })}>+ Novo Tipo de Transformação</Button>
+          <p className="text-stone text-[11px] mt-3">💡 Eliminar um Tipo de Transformação só o remove das opções — transformações já executadas, e o stock já ajustado, não são afetados.</p>
+        </div>
+      </div>
+
+      {transformacaoModal && (
+        <TransformacaoConfigModal
+          transformacao={transformacaoModal.transformacao}
+          artigos={artigosParaTransformacao}
+          onClose={() => setTransformacaoModal(null)}
+          onSaved={() => { notify(transformacaoModal.transformacao ? "Tipo de Transformação atualizado." : "Tipo de Transformação criado."); setTransformacaoModal(null); }}
+        />
+      )}
+
+      <div className="mb-6">
         <h2 className="font-display text-base font-semibold text-ink mb-3">📢 Datas de Marketing</h2>
         <div className="bg-white border border-line rounded-xl p-4">
           <p className="text-stone text-sm mb-3">
@@ -396,5 +777,198 @@ export default function Settings({ settings, marketingDates }) {
         {dirty && <span className="text-stone text-xs">Alterações por guardar</span>}
       </div>
     </div>
+  );
+}
+
+function EmbalagemModal({ embalagem, artigos, onClose, onSaved }) {
+  const isNew = !embalagem;
+  const [nome, setNome] = useState(embalagem?.nome || "");
+  const [notas, setNotas] = useState(embalagem?.notas || "");
+  const [ativo, setAtivo] = useState(embalagem?.ativo !== false);
+  const [itens, setItens] = useState(() => {
+    if (!embalagem) return [{ id: uid(), article_id: "", quantidade: 1 }];
+    const existentes = (embalagem.itens || []);
+    return existentes.length ? existentes : [{ id: uid(), article_id: "", quantidade: 1 }];
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  function addItem() {
+    setItens((prev) => [...prev, { id: uid(), article_id: "", quantidade: 1 }]);
+  }
+  function removeItem(id) {
+    setItens((prev) => prev.filter((it) => it.id !== id));
+  }
+  function updateItem(id, patch) {
+    setItens((prev) => prev.map((it) => it.id === id ? { ...it, ...patch } : it));
+  }
+
+  async function handleSave() {
+    if (!nome.trim()) { setError("Indica um nome para a Embalagem."); return; }
+    const itensValidos = itens.filter((it) => it.article_id);
+    if (itensValidos.length === 0) { setError("Acrescenta pelo menos um artigo à receita."); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const { error: rpcError } = await supabase.rpc("save_embalagem", {
+        p_id: embalagem?.id || null,
+        p_nome: nome.trim(),
+        p_notas: notas || null,
+        p_ativo: ativo,
+        p_itens: itensValidos.map((it) => ({ id: it.id, article_id: it.article_id, quantidade: Number(it.quantidade || 1) })),
+        p_is_test: isNew ? getTestMode() : undefined,
+      });
+      if (rpcError) throw new Error(rpcError.message.replace(/^.*save_embalagem: /, ""));
+      onSaved();
+    } catch (err) {
+      setError(err.message || "Não foi possível guardar a Embalagem.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <ModalShell title={isNew ? "Novo Tipo de Embalagem" : "Editar Tipo de Embalagem"} onClose={onClose}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+        <Field label="Nome"><input className={inputCls} value={nome} onChange={(e) => setNome(e.target.value)} placeholder="ex: Premium" /></Field>
+        <label className="flex items-center gap-1.5 text-xs text-stone pb-2 self-end">
+          <input type="checkbox" checked={ativo} onChange={(e) => setAtivo(e.target.checked)} />
+          Ativo
+        </label>
+      </div>
+      <label className="text-xs font-medium text-stone">Receita</label>
+      <div className="space-y-2 mt-1.5 mb-2">
+        {itens.map((it) => (
+          <div key={it.id} className="grid grid-cols-1 sm:grid-cols-[1fr_90px_auto] gap-2 items-end">
+            <Field label="Artigo">
+              <select className={inputCls} value={it.article_id} onChange={(e) => updateItem(it.id, { article_id: e.target.value })}>
+                <option value="">— escolhe um artigo —</option>
+                {artigos.map((a) => <option key={a.id} value={a.id}>{displaySku(a)} · {a.artigo} (stock: {a.stockAtual})</option>)}
+              </select>
+            </Field>
+            <Field label="Qtd">
+              <input type="number" min="1" step="1" className={inputCls} value={it.quantidade} onChange={(e) => updateItem(it.id, { quantidade: parseFloat(e.target.value) || 1 })} />
+            </Field>
+            <button type="button" onClick={() => removeItem(it.id)} disabled={itens.length === 1}
+              className="text-xs text-clay-dark underline disabled:opacity-30 disabled:no-underline h-[38px]">
+              remover
+            </button>
+          </div>
+        ))}
+      </div>
+      <Button variant="default" onClick={addItem}>+ Adicionar artigo à receita</Button>
+      <p className="text-[11px] text-stone mt-2 mb-3">💡 Só aparecem aqui artigos de Material Interno — as Etiquetas ficam de fora de propósito, já que só saem pelo pisco "Peça já etiquetada" de cada venda.</p>
+      {error && <p className="text-clay-dark text-xs mb-3">{error}</p>}
+      <div className="mb-5">
+        <Field label="Notas"><textarea rows={2} className={inputCls} value={notas} onChange={(e) => setNotas(e.target.value)} /></Field>
+      </div>
+      <ModalActions onClose={onClose} onSave={handleSave} label={saving ? "A guardar…" : "Guardar"} disabled={saving} />
+    </ModalShell>
+  );
+}
+
+function TransformacaoConfigModal({ transformacao, artigos, onClose, onSaved }) {
+  const isNew = !transformacao;
+  const [nome, setNome] = useState(transformacao?.nome || "");
+  const [notas, setNotas] = useState(transformacao?.notas || "");
+  const [ativo, setAtivo] = useState(transformacao?.ativo !== false);
+  const [outputArticleId, setOutputArticleId] = useState(transformacao?.output_article_id || "");
+  const [outputQuantidade, setOutputQuantidade] = useState(transformacao?.output_quantidade || 1);
+  const [itens, setItens] = useState(() => {
+    if (!transformacao) return [{ id: uid(), article_id: "", quantidade: 1 }];
+    const existentes = (transformacao.itens || []);
+    return existentes.length ? existentes : [{ id: uid(), article_id: "", quantidade: 1 }];
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  function addItem() {
+    setItens((prev) => [...prev, { id: uid(), article_id: "", quantidade: 1 }]);
+  }
+  function removeItem(id) {
+    setItens((prev) => prev.filter((it) => it.id !== id));
+  }
+  function updateItem(id, patch) {
+    setItens((prev) => prev.map((it) => it.id === id ? { ...it, ...patch } : it));
+  }
+
+  async function handleSave() {
+    if (!nome.trim()) { setError("Indica um nome para a Transformação."); return; }
+    if (!outputArticleId) { setError("Escolhe o artigo de saída."); return; }
+    const itensValidos = itens.filter((it) => it.article_id);
+    if (itensValidos.length === 0) { setError("Acrescenta pelo menos um artigo consumido (input)."); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const { error: rpcError } = await supabase.rpc("save_transformacao", {
+        p_id: transformacao?.id || null,
+        p_nome: nome.trim(),
+        p_notas: notas || null,
+        p_ativo: ativo,
+        p_output_article_id: outputArticleId,
+        p_output_quantidade: Number(outputQuantidade || 1),
+        p_itens: itensValidos.map((it) => ({ id: it.id, article_id: it.article_id, quantidade: Number(it.quantidade || 1) })),
+        p_is_test: isNew ? getTestMode() : undefined,
+      });
+      if (rpcError) throw new Error(rpcError.message.replace(/^.*save_transformacao: /, ""));
+      onSaved();
+    } catch (err) {
+      setError(err.message || "Não foi possível guardar a Transformação.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <ModalShell title={isNew ? "Novo Tipo de Transformação" : "Editar Tipo de Transformação"} onClose={onClose}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+        <Field label="Nome"><input className={inputCls} value={nome} onChange={(e) => setNome(e.target.value)} placeholder="ex: Etiquetas caseiras" /></Field>
+        <label className="flex items-center gap-1.5 text-xs text-stone pb-2 self-end">
+          <input type="checkbox" checked={ativo} onChange={(e) => setAtivo(e.target.checked)} />
+          Ativo
+        </label>
+      </div>
+
+      <div className="bg-paper border border-line rounded-lg p-3 mb-3">
+        <p className="text-xs font-semibold text-stone uppercase tracking-wide mb-2">Artigo produzido (saída)</p>
+        <div className="grid grid-cols-1 sm:grid-cols-[1fr_100px] gap-3">
+          <Field label="Artigo">
+            <select className={inputCls} value={outputArticleId} onChange={(e) => setOutputArticleId(e.target.value)}>
+              <option value="">— escolher —</option>
+              {artigos.map((a) => <option key={a.id} value={a.id}>{displaySku(a)} · {a.artigo} (stock: {a.stockAtual})</option>)}
+            </select>
+          </Field>
+          <Field label="Qtd por lote"><input type="number" min="0" step="1" className={inputCls} value={outputQuantidade} onChange={(e) => setOutputQuantidade(parseFloat(e.target.value) || 0)} /></Field>
+        </div>
+      </div>
+
+      <label className="text-xs font-medium text-stone">Artigos consumidos (inputs)</label>
+      <div className="space-y-2 mt-1.5 mb-2">
+        {itens.map((it) => (
+          <div key={it.id} className="grid grid-cols-1 sm:grid-cols-[1fr_90px_auto] gap-2 items-end">
+            <Field label="Artigo">
+              <select className={inputCls} value={it.article_id} onChange={(e) => updateItem(it.id, { article_id: e.target.value })}>
+                <option value="">— escolhe um artigo —</option>
+                {artigos.map((a) => <option key={a.id} value={a.id}>{displaySku(a)} · {a.artigo} (stock: {a.stockAtual})</option>)}
+              </select>
+            </Field>
+            <Field label="Qtd por lote">
+              <input type="number" min="0" step="0.01" className={inputCls} value={it.quantidade} onChange={(e) => updateItem(it.id, { quantidade: parseFloat(e.target.value) || 0 })} />
+            </Field>
+            <button type="button" onClick={() => removeItem(it.id)} disabled={itens.length === 1}
+              className="text-xs text-clay-dark underline disabled:opacity-30 disabled:no-underline h-[38px]">
+              remover
+            </button>
+          </div>
+        ))}
+      </div>
+      <Button variant="default" onClick={addItem}>+ Adicionar artigo consumido</Button>
+      <p className="text-[11px] text-stone mt-2 mb-3">💡 Ao usar este Tipo em "Registar transformação" (Artigos), o nº de lotes multiplica todas estas quantidades — tanto do output como dos inputs.</p>
+      {error && <p className="text-clay-dark text-xs mb-3">{error}</p>}
+      <div className="mb-5">
+        <Field label="Notas"><textarea rows={2} className={inputCls} value={notas} onChange={(e) => setNotas(e.target.value)} /></Field>
+      </div>
+      <ModalActions onClose={onClose} onSave={handleSave} label={saving ? "A guardar…" : "Guardar"} disabled={saving} />
+    </ModalShell>
   );
 }

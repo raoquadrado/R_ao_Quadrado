@@ -16,14 +16,27 @@ export const DEFAULT_MARGIN_PCT = 55;
 // Valores por defeito, usados até a linha de "settings" carregar da base de dados (ou se
 // ainda não existir) — têm de bater certo com os defaults definidos no schema.sql.
 // ---------- Versão da aplicação ----------
-export const APP_VERSION = "1.4.0";
+export const APP_VERSION = "1.7.0";
 export const APP_RELEASE_DATE = "2026-08-14";
-// Histórico de alterações — a entrada [0] é sempre a mais recente. "data" vem sempre do dia
-// certo. "hora" é uma aproximação (pesquisada na hora da alteração, não um relógio em tempo
-// real ligado ao sistema) — pode ter uma diferença de alguns minutos; fica omissa nas
-// entradas anteriores a esta funcionalidade, onde só a ordem dentro do dia é fiável.
+// Histórico de alterações — a entrada [0] é sempre a mais recente. Cada uma tem "data"
+// (fiável, vem do dia em que a alteração foi feita) e, sempre que a Rosa a fornece
+// diretamente (não há acesso a um relógio em tempo real), "hora" — dentro do mesmo dia, a
+// ordem da lista é a ordem em que as alterações foram feitas. Sempre que se pede uma
+// alteração nova, acrescenta-se uma entrada aqui, no topo.
 export const APP_CHANGELOG = [
-  { data: "2026-08-16", hora: "12:15", titulo: "Hora aproximada no changelog", notas: "Cada alteração passa a ficar também com uma hora aproximada (pesquisada na altura, sem relógio em tempo real ligado ao sistema)." },
+  { data: "2026-08-18", hora: "19:44", titulo: "Módulo de Etiquetas e Embalagens", notas: "Novo em Definições: Tipos de Embalagem (ex: \"Normal\", \"Premium\") são uma receita fixa de material interno — nunca etiquetas. Escolher a Embalagem passa a ser obrigatório em toda a Encomenda, e dá baixa de stock de uma vez a todos os artigos da receita." },
+  { data: "2026-08-18", hora: "19:44", titulo: "Correção: Material Interno já não aparece para vender", notas: "Etiquetas, caixas, sacos e outro material interno deixam de aparecer nos seletores de artigo em Vendas, Trocas, Centro de Conteúdo e Diretos." },
+  { data: "2026-08-18", hora: "19:44", titulo: "Encomendas passam a viver dentro de Vendas", notas: "Sem aba própria — as vendas da mesma encomenda aparecem agrupadas na tabela de Vendas. Nova possibilidade de duas Faturas por encomenda (Rosa e Rita), cada venda mostra sempre a de quem a vendeu." },
+  { data: "2026-08-18", hora: "08:36", titulo: "Encomendas", notas: "Nova aba: junta várias Vendas do mesmo cliente para um único envio. Estado de envio, método, código de rastreio e fatura passam a viver na Encomenda, partilhados por todas as vendas que contém — pode acrescentar-se mais vendas enquanto \"Em Preparação\". Vendas soltas continuam a funcionar exatamente como antes." },
+  { data: "2026-08-17", hora: "19:22", titulo: "Cor \"N/A\" por defeito", notas: "Um artigo novo nasce sempre com a cor \"N/A\" (protegida, tal como \"Liso\" no Padrão)." },
+  { data: "2026-08-17", hora: "19:22", titulo: "Baixa automática de stock ao etiquetar", notas: "Marcar \"Peça já etiquetada\" dá baixa de 1 unidade a um artigo do Tipo \"Etiqueta física?\"; com várias etiquetas em stock, pergunta qual usar. Desmarcar devolve a unidade." },
+  { data: "2026-08-17", hora: "19:22", titulo: "Campos escondidos em artigos não vendáveis", notas: "\"Peça já etiquetada\" e \"Publicado nas redes sociais\" deixam de aparecer em artigos de Material Interno." },
+  { data: "2026-08-17", hora: "19:22", titulo: "Cor e Padrão separados e parametrizáveis", notas: "Deixaram de ser um só campo combinado — cada um com a sua lista editável em Definições. Padrão nasce sempre \"Liso\"." },
+  { data: "2026-08-17", hora: "19:22", titulo: "Tipos de Artigo totalmente parametrizáveis", notas: "A lista de Tipos passou de fixa no código para totalmente editável em Definições — Grupo, Peça, Código, Permite venda?, Tem tamanho? e Etiqueta física?." },
+  { data: "2026-08-17", hora: "19:22", titulo: "Tipo \"Material Interno\"", notas: "Novo grupo para material de apoio nunca vendido (etiquetas, caixas, sacos de envio, etc.) — pisco \"Material interno\" automático, escondido por defeito na lista de Artigos." },
+  { data: "2026-08-17", hora: "19:22", titulo: "Preço médio, referência e criação rápida nas Compras", notas: "Novo \"Preço médio\" no artigo; campo \"Referência do fornecedor\" por item de compra, pesquisável; criar um artigo na hora só com descrição (fica \"A aguardar validação\" até completar)." },
+  { data: "2026-08-17", hora: "19:22", titulo: "Stock só entra com a compra \"Concluída\"", notas: "Uma compra \"Reservado\" ou \"Enviado\" já não soma stock nem atualiza o preço do artigo — só ao passar a \"Concluída\"." },
+  { data: "2026-08-17", hora: "19:22", titulo: "Compras passam a ter itens", notas: "Uma compra pode agora ter vários artigos, cada um com a sua quantidade e custo — antes era um artigo por compra." },
   { data: "2026-08-16", titulo: "Logótipo atualizado", notas: "Nova imagem de marca, com tamanho maior na barra lateral." },
   { data: "2026-08-16", titulo: "Correção da saudação", notas: "O nome mostrado no Painel passou a ser sempre \"Rosa\" ou \"Rita\", independentemente do resto do endereço de email de login." },
   { data: "2026-08-16", titulo: "\"Sobre\" com changelog", notas: "A janela \"Sobre\" passou a mostrar o histórico de alterações por data, com a mais recente sempre no topo." },
@@ -106,16 +119,21 @@ export const PURCHASE_STATUS = ["Reservado", "Enviado", "Concluída"];
 export const SOCIAL_PLATFORM_OPTIONS = ["Facebook", "Instagram", "Outro", "TikTok", "WhatsApp"];
 
 // ---------- Estado do artigo ----------
-export const ARTICLE_ESTADOS = ["Em stock", "Esgotado — vai repor", "Sem Reposição", "Pausado"];
+export const ARTICLE_ESTADOS = ["A aguardar validação", "Novo — Sem compras", "Em stock", "Esgotado — vai repor", "Sem Reposição", "Pausado"];
 export const ARTICLE_ESTADO_COLORS = {
+  "A aguardar validação": { color: "#B34700", bg: "#FCE8D5" },
+  "Novo — Sem compras": { color: "#4A2A85", bg: "#EEE1FB" },
   "Em stock": { color: "#254238", bg: "#DCEBE4" },
   "Esgotado — vai repor": { color: "#A67C1E", bg: "#F5EADD" },
   "Sem Reposição": { color: "#7A2A24", bg: "#F5D9D6" },
   "Pausado": { color: "#8A8677", bg: "#F1EDE3" },
 };
-// Estes dois estados representam artigos que não estão ativamente à venda por escolha —
-// não fazem sentido nos alertas de "stock esgotado/baixo" do Painel, já que já se sabe.
-export const ARTICLE_ESTADOS_SEM_ALERTA = ["Sem Reposição", "Pausado"];
+// Estes estados representam artigos que não estão ativamente à venda / prontos a vender
+// por escolha ou por ainda não terem sido repostos — não fazem sentido nos alertas de
+// "stock esgotado/baixo" do Painel (um artigo "Novo — Sem compras" ainda está em
+// preparação, nunca teve stock, não é um esgotamento a alertar; um "A aguardar
+// validação" nem sequer tem tipo/cor/SKU definidos ainda, muito menos alertar por stock).
+export const ARTICLE_ESTADOS_SEM_ALERTA = ["A aguardar validação", "Novo — Sem compras", "Sem Reposição", "Pausado"];
 
 // ---------- Lista de espera dos Diretos ----------
 export const WAITLIST_ESTADOS = ["Pendente", "Encerrado — Artigo sem reposição"];
@@ -136,62 +154,56 @@ export const EXCHANGE_ESTADO_COLORS = {
 };
 export const EXCHANGE_MOTIVOS = ["Tamanho errado", "Não gostou", "Defeito", "Artigo diferente do anunciado", "Outro"];
 
-export const COLOR_OPTIONS = [
-  "Amarelo", "Amarelo mostarda", "Azul", "Azul bebé", "Azul claro", "Azul escuro", "Azul esverdeado",
-  "Azul marinho", "Azul turquesa", "Bege", "Branco", "Caramelo", "Castanho", "Castanho claro", "Castanho escuro",
-  "Cinzento", "Cinzento claro", "Cinzento escuro", "Coral", "Creme", "Dourado", "Grafite", "Laranja", "Lavanda",
-  "Lilás", "Nude", "Prateado", "Preto", "Rosa", "Rosa choque", "Rosa claro", "Rosa velho", "Rosa vivo", "Roxo",
-  "Terracota", "Verde", "Verde água", "Verde claro", "Verde escuro", "Verde esmeralda", "Verde lima", "Verde oliva",
-  "Vermelho", "Vinho",
-].sort((a, b) => a.localeCompare(b, "pt"));
+// Cor e Padrão passaram a ser listas parametrizáveis em Definições (tabelas article_cores
+// e article_padroes) — já não são constantes fixas no código.
+export function opcoesAtivas(lista) {
+  return (lista || []).filter((v) => v.ativo !== false && !v.deleted_at).sort((a, b) => a.valor.localeCompare(b.valor, "pt"));
+}
 
-export const PATTERN_OPTIONS = [
-  "Animal print", "Estampado", "Floral", "Liso", "Multicolor", "Poás", "Riscas", "Xadrez",
-].sort((a, b) => a.localeCompare(b, "pt"));
+// ---------- Tipos de artigo (totalmente parametrizável em Definições, tabela article_tipos) ----------
+// A lista de Tipos já não é fixa no código — cada linha (Grupo + Peça + Código + Permite
+// venda? + Tem tamanho?) é gerida livremente pela Rosa/Rita nas Definições. Estas funções
+// leem sempre a lista viva (passada como `tipos`, vinda de useRealtimeTable("article_tipos")).
 
-export const TIPO_OPTIONS = [
-  { label: "Blazer", code: "BLZ", group: "Vestuário" },
-  { label: "Blusa", code: "BLU", group: "Vestuário" },
-  { label: "Calças", code: "CAL", group: "Vestuário" },
-  { label: "Camisa", code: "CAM", group: "Vestuário" },
-  { label: "Camisola", code: "CML", group: "Vestuário" },
-  { label: "Casaco", code: "CAS", group: "Vestuário" },
-  { label: "Colete", code: "CTE", group: "Vestuário" },
-  { label: "Fato de banho", code: "FDB", group: "Vestuário" },
-  { label: "Jeans", code: "JNS", group: "Vestuário" },
-  { label: "Leggings", code: "LEG", group: "Vestuário" },
-  { label: "Pijama", code: "PIJ", group: "Vestuário" },
-  { label: "Roupa interior", code: "RIN", group: "Vestuário" },
-  { label: "Saia", code: "SAI", group: "Vestuário" },
-  { label: "Sweatshirt", code: "SWT", group: "Vestuário" },
-  { label: "T-shirt", code: "TSH", group: "Vestuário" },
-  { label: "Vestido", code: "VES", group: "Vestuário" },
-  { label: "Bijuteria", code: "BIJ", group: "Acessórios" },
-  { label: "Boné", code: "BON", group: "Acessórios" },
-  { label: "Cachecol", code: "CCH", group: "Acessórios" },
-  { label: "Carteira", code: "CRT", group: "Acessórios" },
-  { label: "Chapéu", code: "CHP", group: "Acessórios" },
-  { label: "Cinto", code: "CIN", group: "Acessórios" },
-  { label: "Lenço", code: "LEN", group: "Acessórios" },
-  { label: "Luvas", code: "LUV", group: "Acessórios" },
-  { label: "Mala", code: "MAL", group: "Acessórios" },
-  { label: "Óculos", code: "OCL", group: "Acessórios" },
-  { label: "Botas", code: "BOT", group: "Calçado" },
-  { label: "Chinelos", code: "CHL", group: "Calçado" },
-  { label: "Sandálias", code: "SAN", group: "Calçado" },
-  { label: "Sapatos", code: "SAP", group: "Calçado" },
-  { label: "Saltos altos", code: "SLT", group: "Calçado" },
-  { label: "Ténis", code: "TEN", group: "Calçado" },
-].sort((a, b) => a.label.localeCompare(b.label, "pt"));
+export function tipoEntryFor(tipoLabel, tipos) {
+  return (tipos || []).find((t) => t.peca === tipoLabel) || null;
+}
 
-// Tipos que costumam ter tamanho: toda a Vestuário e Calçado, mais alguns Acessórios.
-// Ajusta esta lista se quiseres que mais acessórios (Luvas, Chapéu, Boné…) também tenham tamanho.
-const SIZED_ACESSORIOS = new Set(["Cinto"]);
-export function tipoTemTamanho(tipoLabel) {
-  const entry = TIPO_OPTIONS.find((t) => t.label === tipoLabel);
-  if (!entry) return false;
-  if (entry.group === "Vestuário" || entry.group === "Calçado") return true;
-  return SIZED_ACESSORIOS.has(entry.label);
+export function tipoTemTamanho(tipoLabel, tipos) {
+  return !!tipoEntryFor(tipoLabel, tipos)?.tem_tamanho;
+}
+
+// Um Tipo com "permite_venda" desligado é material interno (etiquetas, caixas, sacos de
+// envio, cabides, etc.) — nunca vendido a clientes, só para controlar o stock desse
+// material de apoio. O pisco "Material interno" (uso_interno) do artigo marca-se sozinho
+// consoante o Tipo escolhido — nunca à mão.
+export function tipoUsoInterno(tipoLabel, tipos) {
+  const entry = tipoEntryFor(tipoLabel, tipos);
+  return entry ? !entry.permite_venda : false;
+}
+
+// Um Tipo marcado "eh_etiqueta" (ex: "Etiquetas") serve para dar baixa de stock quando um
+// artigo vendável é marcado "Peça já etiquetada" (ver ArticleModal / etiqueta_consumos).
+export function tipoEhEtiqueta(tipoLabel, tipos) {
+  return !!tipoEntryFor(tipoLabel, tipos)?.eh_etiqueta;
+}
+
+// Agrupa os Tipos ativos por Grupo, ordenados — pronto a usar num <select> com <optgroup>.
+// Grupos que só têm Tipos "Não vendáveis" (ex: Material Interno) aparecem sempre no fim da
+// lista — os grupos vendáveis vêm primeiro, para não atrapalhar a escolha do dia a dia.
+export function tiposAgrupados(tipos) {
+  const ativos = (tipos || []).filter((t) => t.ativo !== false && !t.deleted_at);
+  const grupos = [...new Set(ativos.map((t) => t.grupo))];
+  const vendavel = (grupo) => ativos.some((t) => t.grupo === grupo && t.permite_venda);
+  grupos.sort((a, b) => {
+    const va = vendavel(a), vb = vendavel(b);
+    if (va !== vb) return va ? -1 : 1;
+    return a.localeCompare(b, "pt");
+  });
+  return grupos.map((grupo) => ({
+    grupo,
+    pecas: ativos.filter((t) => t.grupo === grupo).sort((a, b) => a.peca.localeCompare(b.peca, "pt")),
+  }));
 }
 
 export const TAG_OPTIONS = [

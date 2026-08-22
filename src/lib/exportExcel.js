@@ -3,12 +3,12 @@ import { money, todayISO, fmtDate, displaySku } from "./computations";
 import { computeFullDashboard } from "./dashboardStats";
 import { getTestMode } from "./testMode";
 
-export function exportExcel({ articles, suppliers, articlesComputed, purchases, clientsComputed, clients, sales, contentItems, supplierName, articleName, clientName }) {
+export function exportExcel({ articles, suppliers, articlesComputed, purchases, purchaseItems, clientsComputed, clients, sales, contentItems, encomendas, embalagens, embalagemItens, transformacoes, transformacaoItens, supplierName, articleName, clientName, tipos }) {
   const wb = XLSX.utils.book_new();
   const emTeste = getTestMode();
 
   const dash = computeFullDashboard({
-    articles, articlesComputed, purchases, sales, suppliers, clients, clientsComputed,
+    articles, articlesComputed, purchases, purchaseItems, sales, suppliers, clients, clientsComputed, tipos,
     periodKey: "month", customStart: "", customEnd: "", owner: "Todos",
   });
   const kpiRows = [
@@ -37,12 +37,13 @@ export function exportExcel({ articles, suppliers, articlesComputed, purchases, 
 
   const wsArticles = XLSX.utils.json_to_sheet(
     articlesComputed.map((a) => ({
-      SKU: displaySku(a), Tipo: a.tipo, Artigo: a.artigo, Tamanho: a.tamanho || "—", "Cor / padrão": a.cor, Fornecedor: supplierName(a.fornecedor_id), Owner: a.owner,
-      "Preço unitário (€)": a.preco_unitario, "IVA (%)": a.iva, Quantidade: a.quantidade,
+      SKU: displaySku(a), Tipo: a.tipo, Artigo: a.artigo, Tamanho: a.tamanho || "—", Cor: a.cor, "Padrão": a.padrao || "Liso", Owner: a.owner,
+      "Preço unitário (€)": a.preco_unitario, "Preço médio (€)": a.preco_medio, "IVA (%)": a.iva, Quantidade: a.quantidade,
       "Valor total s/IVA (€)": Number(a.valorTotalSemIVA.toFixed(2)), "Valor total c/IVA (€)": Number(a.valorTotalComIVA.toFixed(2)),
       "Valor de venda (€)": a.valor_venda, "Margem (€)": Number(a.margemUnit.toFixed(2)), "Margem (%)": Number(a.margemPct.toFixed(1)),
       "Stock atual": a.stockAtual, "Valor stock s/IVA (€)": Number(a.valorStockSemIVA.toFixed(2)), "Valor stock c/IVA (€)": Number(a.valorStockComIVA.toFixed(2)),
       Publicado: a.publicado ? "Sim" : "Não",
+      "Material interno": a.uso_interno ? "Sim" : "Não",
     }))
   );
   XLSX.utils.book_append_sheet(wb, wsArticles, "Artigos e Stock");
@@ -58,6 +59,20 @@ export function exportExcel({ articles, suppliers, articlesComputed, purchases, 
     }))
   );
   XLSX.utils.book_append_sheet(wb, wsPurchases, "Compras");
+
+  if (purchaseItems) {
+    const wsPurchaseItems = XLSX.utils.json_to_sheet(
+      purchaseItems.map((it) => {
+        const p = purchases.find((x) => x.id === it.purchase_id);
+        return {
+          "Código da compra": p?.codigo || "—", Data: p?.data || "—", Fornecedor: p ? supplierName(p.supplier_id) : "—",
+          Artigo: articleName(it.article_id), "Referência fornecedor": it.referencia || "—", Quantidade: it.quantidade, "Custo unitário (€)": it.valor_unitario,
+          "Subtotal (€)": Number((Number(it.quantidade || 0) * Number(it.valor_unitario || 0)).toFixed(2)), Notas: it.notas || "—",
+        };
+      })
+    );
+    XLSX.utils.book_append_sheet(wb, wsPurchaseItems, "Itens de Compra");
+  }
 
   const wsClients = XLSX.utils.json_to_sheet(
     clientsComputed.map((c) => ({
@@ -84,6 +99,45 @@ export function exportExcel({ articles, suppliers, articlesComputed, purchases, 
     }))
   );
   XLSX.utils.book_append_sheet(wb, wsSales, "Vendas");
+
+  if (encomendas) {
+    const wsEncomendas = XLSX.utils.json_to_sheet(
+      encomendas.map((e) => {
+        const nVendas = sales.filter((s) => s.encomenda_id === e.id).length;
+        const embalagem = embalagens?.find((emb) => emb.id === e.embalagem_id);
+        return {
+          Código: e.codigo || "—", Cliente: clientName(e.client_id), "Nº de vendas": nVendas,
+          "Estado do envio": e.estado_envio || "Não Definido", "Método de envio": e.metodo_envio || "—", "Código de envio": e.codigo_envio || "—", "Data de envio": e.data_envio || "—",
+          Embalagem: embalagem?.nome || "—",
+          "Fatura Rosa": e.fatura_rosa || "por emitir", "Fatura Rita": e.fatura_rita || "por emitir", Notas: e.notas || "—",
+        };
+      })
+    );
+    XLSX.utils.book_append_sheet(wb, wsEncomendas, "Encomendas");
+  }
+
+  if (embalagens) {
+    const wsEmbalagens = XLSX.utils.json_to_sheet(
+      embalagens.map((e) => ({
+        Nome: e.nome, Ativo: e.ativo === false ? "Não" : "Sim",
+        Receita: (embalagemItens || []).filter((it) => it.embalagem_id === e.id).map((it) => `${articleName(it.article_id)} ×${it.quantidade}`).join(", ") || "sem itens",
+        Notas: e.notas || "—",
+      }))
+    );
+    XLSX.utils.book_append_sheet(wb, wsEmbalagens, "Embalagens");
+  }
+
+  if (transformacoes) {
+    const wsTransformacoes = XLSX.utils.json_to_sheet(
+      transformacoes.map((t) => ({
+        Nome: t.nome, Ativo: t.ativo === false ? "Não" : "Sim",
+        Produz: `${articleName(t.output_article_id)} ×${t.output_quantidade}`,
+        Consome: (transformacaoItens || []).filter((it) => it.transformacao_id === t.id).map((it) => `${articleName(it.article_id)} ×${it.quantidade}`).join(", ") || "sem itens",
+        Notas: t.notas || "—",
+      }))
+    );
+    XLSX.utils.book_append_sheet(wb, wsTransformacoes, "Transformações");
+  }
 
   if (contentItems) {
     const wsContent = XLSX.utils.json_to_sheet(

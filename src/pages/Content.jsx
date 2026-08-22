@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { deleteRow } from "../lib/useRealtimeTable";
 import { saveContentItem } from "../lib/contentHelpers";
-import { CONTENT_STATUS, CONTENT_STATUS_COLORS, CONTENT_NETWORKS, CONTENT_NETWORK_COLORS, CONTENT_TIPOS, CONTENT_TIPO_PREFIXO, CONTENT_TIPO_COLORS } from "../lib/constants";
+import { CONTENT_STATUS, CONTENT_STATUS_COLORS, CONTENT_NETWORKS, CONTENT_NETWORK_COLORS, CONTENT_TIPOS, CONTENT_TIPO_PREFIXO, CONTENT_TIPO_COLORS, tipoUsoInterno } from "../lib/constants";
 import { fmtDate, displaySku, sugerirCodigoPorData } from "../lib/computations";
 import { useToast, useConfirm } from "../lib/overlays";
 import { Field, Button, Badge, ModalShell, ModalActions, SearchBox, TabHeader, RowActions, EmptyRow, inputCls, useColumnFilters, FilterTh } from "../components/ui";
@@ -14,7 +14,7 @@ export const empty = (articles, presetArticleId, isGeneral) => ({
   isGeneral: !!isGeneral,
 });
 
-export default function Content({ contentItems, articles, articleName, autoOpenNew, onConsumedAutoOpen, autoFilterArticleId, onConsumedAutoFilter, presetArticleId, onConsumedPresetArticle, onOpenArticle }) {
+export default function Content({ contentItems, articles, tipos, articleName, autoOpenNew, onConsumedAutoOpen, autoFilterArticleId, onConsumedAutoFilter, presetArticleId, onConsumedPresetArticle, onOpenArticle }) {
   const [qArtigos, setQArtigos] = useState("");
   const [qGeral, setQGeral] = useState("");
   const [modal, setModal] = useState(null);
@@ -213,6 +213,7 @@ export default function Content({ contentItems, articles, articleName, autoOpenN
           data={modal.data}
           isNew={modal.isNew}
           articles={articles}
+          tipos={tipos}
           contentItems={contentItems}
           onClose={() => setModal(null)}
           onSave={handleSave}
@@ -222,7 +223,7 @@ export default function Content({ contentItems, articles, articleName, autoOpenN
   );
 }
 
-export function ContentModal({ data, isNew, articles, contentItems, onClose, onSave }) {
+export function ContentModal({ data, isNew, articles, tipos, contentItems, onClose, onSave }) {
   const tipoInicial = data.tipo || CONTENT_TIPOS[0];
   const isGeneral = !!data.isGeneral;
   const [f, setF] = useState({ ...data, tipo: tipoInicial, codigo: data.codigo || (isNew ? sugerirCodigoPorData(CONTENT_TIPO_PREFIXO[tipoInicial], data.data_publicacao, contentItems, "codigo", data.id) : "") });
@@ -262,7 +263,7 @@ export function ContentModal({ data, isNew, articles, contentItems, onClose, onS
         ) : (
           <Field label="Artigo" span>
             <select className={inputCls} value={f.article_id} onChange={set("article_id")}>
-              {articles.map((a) => <option key={a.id} value={a.id}>{a.sku ? `${displaySku(a)} · ${a.artigo}` : a.artigo}</option>)}
+              {articles.filter((a) => !tipoUsoInterno(a.tipo, tipos) || a.id === f.article_id).map((a) => <option key={a.id} value={a.id}>{a.sku ? `${displaySku(a)} · ${a.artigo}` : a.artigo}</option>)}
             </select>
           </Field>
         )}

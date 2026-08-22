@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { displaySku } from "../lib/computations";
+import { displaySku, money, fmtDate } from "../lib/computations";
 
-export default function GlobalSearch({ suppliers, clients, articlesComputed, onClose, onOpenRecord }) {
+export default function GlobalSearch({ suppliers, clients, articlesComputed, sales, encomendas, articleName, clientName, onClose, onOpenRecord }) {
   const [q, setQ] = useState("");
   const inputRef = useRef(null);
 
@@ -23,12 +23,20 @@ export default function GlobalSearch({ suppliers, clients, articlesComputed, onC
       .slice(0, 6)
       .map((s) => ({ kind: "suppliers", id: s.id, icon: "🚚", title: s.nome, sub: s.localidade || "Fornecedor" }));
     const articleHits = articlesComputed
-      .filter((a) => !term || `${a.sku} ${a.artigo} ${a.cor || ""}`.toLowerCase().includes(term))
+      .filter((a) => !term || `${a.sku} ${a.artigo} ${a.cor || ""} ${a.padrao || ""}`.toLowerCase().includes(term))
       .slice(0, 6)
       .map((a) => ({ kind: "articles", id: a.id, icon: "📦", title: a.artigo, sub: displaySku(a) || "Artigo" }));
+    const encomendaHits = (encomendas || [])
+      .filter((e) => !term || `${e.codigo || ""} ${e.codigo_envio || ""} ${clientName ? clientName(e.client_id) : ""}`.toLowerCase().includes(term))
+      .slice(0, 6)
+      .map((e) => ({ kind: "encomendas", id: e.id, icon: "📦", title: e.codigo || "Encomenda", sub: `${clientName ? clientName(e.client_id) : ""} · ${e.estado_envio || "Não Definido"}` }));
+    const saleHits = (sales || [])
+      .filter((s) => !term || `${s.codigo || ""} ${articleName ? articleName(s.article_id) : ""} ${clientName ? clientName(s.client_id) : ""}`.toLowerCase().includes(term))
+      .slice(0, 6)
+      .map((s) => ({ kind: "sales", id: s.id, icon: "🧾", title: s.codigo || (articleName ? articleName(s.article_id) : "Venda"), sub: `${clientName ? clientName(s.client_id) : ""} · ${money(s.valor_venda)} · ${fmtDate(s.data)}` }));
     if (!term) return [...clientHits, ...supplierHits, ...articleHits].slice(0, 8);
-    return [...clientHits, ...supplierHits, ...articleHits];
-  }, [q, clients, suppliers, articlesComputed]);
+    return [...clientHits, ...supplierHits, ...articleHits, ...encomendaHits, ...saleHits];
+  }, [q, clients, suppliers, articlesComputed, sales, encomendas]);
 
   return (
     <div onClick={onClose} className="fixed inset-0 bg-ink/45 flex items-start justify-center z-[120] p-4 pt-[12vh]">
@@ -37,7 +45,7 @@ export default function GlobalSearch({ suppliers, clients, articlesComputed, onC
           ref={inputRef}
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Procurar clientes, fornecedores ou artigos…"
+          placeholder="Procurar clientes, fornecedores, artigos, vendas ou encomendas…"
           className="w-full px-4 py-3.5 text-sm bg-white border-b border-line focus:outline-none"
         />
         <div className="max-h-[50vh] overflow-y-auto">

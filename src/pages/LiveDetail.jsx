@@ -181,6 +181,15 @@ function SessionView({ live, registos, clients, articleName, articlesComputed, o
   function removeSelecionado(key) { setSelecionados((prev) => prev.filter((s) => s.key !== key)); }
   function setQtd(key, qtd) { setSelecionados((prev) => prev.map((s) => s.key === key ? { ...s, quantidade: Math.max(1, qtd) } : s)); }
 
+  async function trocarPecaConjunto(itemId, articleIdAntigo, articleIdNovo) {
+    const novosItens = itens.map((it) => {
+      if (it.id !== itemId) return it;
+      return { ...it, article_ids: it.article_ids.map((aid) => (aid === articleIdAntigo ? articleIdNovo : aid)) };
+    });
+    await updateRow("lives", live.id, { itens: novosItens });
+    notify("Tamanho trocado — só neste conjunto, no resto do catálogo o artigo mantém-se.");
+  }
+
   async function irPara(res) {
     await onMudarPosicao(res.idx);
     addSelecionado(res.key, res.label);
@@ -257,8 +266,11 @@ function SessionView({ live, registos, clients, articleName, articlesComputed, o
               const a = articlesComputed.find((x) => x.id === aid);
               const key = `${currentItem.id}::${aid}`;
               return (
-                <SelecaoLinha key={aid} selecionado={isSelecionado(key)} onToggle={() => toggleSelecionado(key, `${currentItem.nome} — só ${articleName(aid)}`)}
-                  label={`↳ só ${articleName(aid)}`} sub={a ? `${displaySku(a)} · stock: ${a.stockAtual} · atual: ${money(a.valor_venda)}` : ""} disabledStock={a && a.stockAtual <= 0} />
+                <div key={aid} className="flex items-center gap-2">
+                  <SelecaoLinha selecionado={isSelecionado(key)} onToggle={() => toggleSelecionado(key, `${currentItem.nome} — só ${articleName(aid)}`)}
+                    label={`↳ só ${articleName(aid)}`} sub={a ? `${displaySku(a)} · stock: ${a.stockAtual} · atual: ${money(a.valor_venda)}` : ""} disabledStock={a && a.stockAtual <= 0} />
+                  <TrocarTamanhoPeca artigo={a} articlesComputed={articlesComputed} onTrocar={(novoId) => trocarPecaConjunto(currentItem.id, aid, novoId)} />
+                </div>
               );
             })}
           </div>
@@ -339,6 +351,35 @@ function SelecaoLinha({ selecionado, onToggle, label, sub, disabledStock }) {
       {label}
       {sub && <span className={`font-mono text-[11px] ${disabledStock ? "text-clay-dark" : "text-stone"}`}>{sub}</span>}
     </label>
+  );
+}
+
+// Troca, na hora, a peça de um conjunto por outro tamanho do mesmo artigo (mesmo SKU
+// base) — útil quando só se sabe o tamanho do cliente já durante o direto. Só afeta este
+// conjunto deste direto; o catálogo e os restantes diretos não mudam.
+function TrocarTamanhoPeca({ artigo, articlesComputed, onTrocar }) {
+  const [aberto, setAberto] = useState(false);
+  if (!artigo) return null;
+  const irmaos = articlesComputed.filter((x) => x.sku === artigo.sku && x.id !== artigo.id);
+  if (irmaos.length === 0) return null;
+  if (!aberto) {
+    return (
+      <button type="button" onClick={() => setAberto(true)} className="text-purple-600 text-[11px] shrink-0" title="Trocar por outro tamanho do mesmo artigo">
+        🔁 tamanho
+      </button>
+    );
+  }
+  return (
+    <select
+      className="text-[11px] border border-line rounded px-1 py-0.5 shrink-0"
+      value=""
+      onChange={(e) => { if (e.target.value) onTrocar(e.target.value); setAberto(false); }}
+      onBlur={() => setAberto(false)}
+      autoFocus
+    >
+      <option value="">— escolher tamanho —</option>
+      {irmaos.map((x) => <option key={x.id} value={x.id}>{x.tamanho || "sem tamanho"} · stock: {x.stockAtual}</option>)}
+    </select>
   );
 }
 

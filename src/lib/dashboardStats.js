@@ -1,5 +1,5 @@
 import { todayISO, dataLimiteTroca } from "./computations";
-import { TIPO_OPTIONS, OWNERS, ARTICLE_ESTADOS_SEM_ALERTA, DEFAULT_SETTINGS } from "./constants";
+import { OWNERS, ARTICLE_ESTADOS_SEM_ALERTA, DEFAULT_SETTINGS, tipoEntryFor } from "./constants";
 import { gerarSugestoesPreco } from "./priceSuggestions";
 
 const toISO = (d) => d.toISOString().slice(0, 10);
@@ -40,8 +40,8 @@ export function pctDelta(curr, prev) {
   return ((curr - prev) / Math.abs(prev)) * 100;
 }
 
-function tipoGroup(tipo) {
-  return TIPO_OPTIONS.find((t) => t.label === tipo)?.group || "Outro";
+function tipoGroup(tipo, tipos) {
+  return tipoEntryFor(tipo, tipos)?.grupo || "Outro";
 }
 
 /**
@@ -49,13 +49,19 @@ function tipoGroup(tipo) {
  * período anterior equivalente), dados para os 6 gráficos, listas
  * rápidas e alertas — já filtrado por período e por owner.
  */
-export function computeFullDashboard({ articles, articlesComputed, purchases, sales, suppliers, clients, clientsComputed, lives, liveRegistos, exchanges, contentItems, periodKey, customStart, customEnd, owner, settings }) {
+export function computeFullDashboard({ articles, articlesComputed, purchases, purchaseItems, sales, suppliers, clients, clientsComputed, lives, liveRegistos, exchanges, contentItems, encomendas, embalagemConsumos, etiquetaConsumos, periodKey, customStart, customEnd, owner, settings, tipos }) {
   const cfg = { ...DEFAULT_SETTINGS, ...settings };
   const range = getPeriodRange(periodKey, customStart, customEnd);
   const prevRange = prevPeriodRange(range);
   const ownerFilter = owner && owner !== "Todos" ? owner : null;
 
   const articlesF = ownerFilter ? articlesComputed.filter((a) => a.owner === ownerFilter) : articlesComputed;
+  // Distinção pedida: KPIs de "stock" e "unidades" (linhas 1 e 2) passam a olhar só para
+  // artigos vendáveis — o material interno (etiquetas, caixas, sacos…) tem os seus
+  // próprios KPIs e alertas mais abaixo, para não misturar valores de negócio (venda,
+  // margem) com material de apoio que nunca é vendido.
+  const articlesVendaveis = articlesF.filter((a) => !a.uso_interno);
+  const articlesInternos = articlesF.filter((a) => a.uso_interno);
   const purchasesAll = ownerFilter ? purchases.filter((p) => p.quem_comprou === ownerFilter) : purchases;
   const salesAll = ownerFilter ? sales.filter((s) => s.quem_vendeu === ownerFilter) : sales;
 
@@ -72,17 +78,17 @@ export function computeFullDashboard({ articles, articlesComputed, purchases, sa
   };
   const lucroDeVendas = (arr) => sum(arr, (s) => Number(s.valor_venda || 0) - custoUnitComIVA(s.article_id) * Number(s.quantidade || 0));
 
-  // ---------- linha 1: valores de stock ----------
-  const investido = sum(articlesF, (a) => a.valorTotalSemIVA);
-  const valorAtualStock = sum(articlesF, (a) => a.valorStockSemIVA);
-  const valorPotencialVenda = sum(articlesF, (a) => a.stockAtual * a.valor_venda);
+  // ---------- linha 1: valores de stock (só artigos vendáveis) ----------
+  const investido = sum(articlesVendaveis, (a) => a.valorTotalSemIVA);
+  const valorAtualStock = sum(articlesVendaveis, (a) => a.valorStockSemIVA);
+  const valorPotencialVenda = sum(articlesVendaveis, (a) => a.stockAtual * a.valor_venda);
   const lucroPotencial = valorPotencialVenda - valorAtualStock;
 
-  // ---------- linha 2: unidades ----------
-  const totalArtigos = articlesF.length;
-  const unidadesDisponiveis = sum(articlesF, (a) => Math.max(a.stockAtual, 0));
-  const unidadesReservadas = sum(articlesF, (a) => a.reservedQty);
-  const unidadesVendidas = sum(articlesF, (a) => a.soldQty);
+  // ---------- linha 2: unidades (só artigos vendáveis) ----------
+  const totalArtigos = articlesVendaveis.length;
+  const unidadesDisponiveis = sum(articlesVendaveis, (a) => Math.max(a.stockAtual, 0));
+  const unidadesReservadas = sum(articlesVendaveis, (a) => a.reservedQty);
+  const unidadesVendidas = sum(articlesVendaveis, (a) => a.soldQty);
 
   // ---------- linha 3: negócio ----------
   const nClientes = clients.length;
@@ -150,13 +156,22 @@ export function computeFullDashboard({ articles, articlesComputed, purchases, sa
 
   const purchaseById = {};
   purchases.forEach((p) => { purchaseById[p.id] = p; });
+  // Data de aquisição de um artigo = data da PRIMEIRA compra "Concluída" que teve um
+  // item deste artigo (o stock só entra no artigo quando a compra fica concluída, por
+  // isso só essas contam como "aquisição" real). Sem compras concluídas ainda, cai
+  // para a data de criação do artigo.
+  const primeiraCompraPorArtigo = {};
+  (purchaseItems || []).forEach((pi) => {
+    const p = purchaseById[pi.purchase_id];
+    if (!p?.data || p.estado !== "Concluída") return;
+    const atual = primeiraCompraPorArtigo[pi.article_id];
+    if (!atual || p.data < atual) primeiraCompraPorArtigo[pi.article_id] = p.data;
+  });
   const vendasConcluidas = salesAll.filter((s) => s.estado === "Pago");
   const temposDeVenda = vendasConcluidas.map((s) => {
     const artigo = articlesComputed.find((a) => a.id === s.article_id);
     if (!artigo || !s.data) return null;
-    const dataAquisicao = artigo.purchase_id && purchaseById[artigo.purchase_id]?.data
-      ? purchaseById[artigo.purchase_id].data
-      : (artigo.created_at || "").slice(0, 10);
+    const dataAquisicao = primeiraCompraPorArtigo[s.article_id] || (artigo.created_at || "").slice(0, 10);
     if (!dataAquisicao) return null;
     const dias = (new Date(s.data) - new Date(dataAquisicao)) / 86400000;
     return dias >= 0 ? dias : null;
@@ -164,9 +179,9 @@ export function computeFullDashboard({ articles, articlesComputed, purchases, sa
   const tempoMedioVenda = temposDeVenda.length ? temposDeVenda.reduce((a, b) => a + b, 0) / temposDeVenda.length : null;
 
   const artigosSemFotoCount = articlesF.filter((a) => !a.foto_url && !ARTICLE_ESTADOS_SEM_ALERTA.includes(a.estado)).length;
-  const artigosSemEtiquetaCount = articlesF.filter((a) => !a.etiquetado && !ARTICLE_ESTADOS_SEM_ALERTA.includes(a.estado)).length;
+  const artigosSemEtiquetaCount = articlesF.filter((a) => !a.etiquetado && !a.uso_interno && !ARTICLE_ESTADOS_SEM_ALERTA.includes(a.estado)).length;
   const artigosPublicados = articlesF.filter((a) => a.publicado).length;
-  const artigosPorPublicar = articlesF.filter((a) => !a.publicado && a.stockAtual > 0).length;
+  const artigosPorPublicar = articlesF.filter((a) => !a.publicado && !a.uso_interno && a.stockAtual > 0).length;
 
   const saude = [
     { key: "ticket", icon: "🎫", label: "Ticket médio", value: ticketMedio, kind: "money" },
@@ -189,10 +204,15 @@ export function computeFullDashboard({ articles, articlesComputed, purchases, sa
     const hMD = hojeStr.slice(5), lMD = limiteStr.slice(5);
     return hMD <= lMD ? (mmdd >= hMD && mmdd <= lMD) : (mmdd >= hMD || mmdd <= lMD);
   };
+  // Conta "encomendas" na aceção certa: um grupo de vendas com a mesma encomenda_id conta
+  // como 1 (mesmo que tenha várias peças); uma venda solta conta como 1 encomenda dela
+  // própria — evita inflacionar o número quando várias peças vão na mesma encomenda.
+  const contarEncomendas = (salesArr) => new Set(salesArr.map((s) => s.encomenda_id || `solta:${s.id}`)).size;
+
   const resumoHoje = {
-    porPreparar: salesAll.filter((s) => s.estado === "Pago" && (s.estado_envio === "Em Preparação" || s.estado_envio === "Não Definido" || !s.estado_envio)).length,
-    prontasEnviar: salesAll.filter((s) => s.estado === "Pago" && s.estado_envio === "Preparado").length,
-    enviadasHoje: salesAll.filter((s) => (s.estado_envio === "Enviado" || s.estado_envio === "Entregue em mãos") && s.data_envio === hojeISO).length,
+    porPreparar: contarEncomendas(salesAll.filter((s) => s.estado === "Pago" && (s.estado_envio === "Em Preparação" || s.estado_envio === "Não Definido" || !s.estado_envio))),
+    prontasEnviar: contarEncomendas(salesAll.filter((s) => s.estado === "Pago" && s.estado_envio === "Preparado")),
+    enviadasHoje: contarEncomendas(salesAll.filter((s) => (s.estado_envio === "Enviado" || s.estado_envio === "Entregue em mãos") && s.data_envio === hojeISO)),
     vendasHoje: salesAll.filter((s) => (s.data || "").slice(0, 10) === hojeISO).length,
     reservas: salesAll.filter((s) => s.estado === "Aguarda pagamento").length,
     porPublicar: artigosPorPublicar,
@@ -221,7 +241,7 @@ export function computeFullDashboard({ articles, articlesComputed, purchases, sa
   }));
 
   const catCount = {};
-  articlesF.forEach((a) => { const g = tipoGroup(a.tipo); catCount[g] = (catCount[g] || 0) + 1; });
+  articlesF.forEach((a) => { const g = tipoGroup(a.tipo, tipos); catCount[g] = (catCount[g] || 0) + 1; });
   const artigosPorCategoria = Object.entries(catCount).map(([name, value]) => ({ name, value }));
 
   const ownerCount = {};
@@ -284,17 +304,17 @@ export function computeFullDashboard({ articles, articlesComputed, purchases, sa
     .slice(0, 10);
 
   // ---------- top 10 artigos (mais vendidos / maior margem) e nunca vendidos ----------
-  const maisVendidosArtigos = [...articlesF]
+  const maisVendidosArtigos = [...articlesVendaveis]
     .filter((a) => a.soldQty > 0)
     .sort((a, b) => b.soldQty - a.soldQty)
     .slice(0, 10);
 
-  const maiorMargemArtigos = [...articlesF]
+  const maiorMargemArtigos = [...articlesVendaveis]
     .filter((a) => a.valorVenda > 0)
     .sort((a, b) => b.margemPct - a.margemPct)
     .slice(0, 10);
 
-  const artigosNuncaVendidos = articlesF
+  const artigosNuncaVendidos = articlesVendaveis
     .filter((a) => a.soldQty === 0 && a.stockAtual > 0)
     .sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""))
     .slice(0, 10);
@@ -306,15 +326,15 @@ export function computeFullDashboard({ articles, articlesComputed, purchases, sa
   const reservasExpiradas = salesAll.filter((s) => s.estado === "Aguarda pagamento" && s.data_limite_reserva && s.data_limite_reserva < hoje);
   if (reservasExpiradas.length > 0) alerts.push({ icon: "⏰", text: `${reservasExpiradas.length} reserva(s) expirada(s)`, severity: "high", tab: "sales" });
 
-  const semStockCount = articlesF.filter((a) => a.stockAtual <= 0 && !ARTICLE_ESTADOS_SEM_ALERTA.includes(a.estado)).length;
+  const semStockCount = articlesVendaveis.filter((a) => a.stockAtual <= 0 && !ARTICLE_ESTADOS_SEM_ALERTA.includes(a.estado)).length;
   if (semStockCount > 0) alerts.push({ icon: "🚫", text: `${semStockCount} artigo(s) esgotado(s)`, severity: "high", tab: "articles" });
 
-  const stockBaixoCount = articlesF.filter((a) => a.stockAtual > 0 && a.stockAtual <= cfg.stock_baixo_limite && !ARTICLE_ESTADOS_SEM_ALERTA.includes(a.estado)).length;
+  const stockBaixoCount = articlesVendaveis.filter((a) => a.stockAtual > 0 && a.stockAtual <= cfg.stock_baixo_limite && !ARTICLE_ESTADOS_SEM_ALERTA.includes(a.estado)).length;
   if (stockBaixoCount > 0) alerts.push({ icon: "📉", text: `${stockBaixoCount} artigo(s) com stock baixo`, severity: "medium", tab: "articles" });
 
   const diasAtrasParado = new Date(); diasAtrasParado.setDate(diasAtrasParado.getDate() - cfg.artigo_parado_dias);
   const paradoISO = toISO(diasAtrasParado);
-  const stockParado = articlesF.filter((a) => {
+  const stockParado = articlesVendaveis.filter((a) => {
     if (a.stockAtual <= 0 || a.estado === "Pausado") return false;
     const vendasArtigo = salesAll.filter((s) => s.article_id === a.id).map((s) => s.data).filter(Boolean).sort();
     const ultimoMovimento = vendasArtigo.length ? vendasArtigo[vendasArtigo.length - 1] : (a.created_at || "").slice(0, 10);
@@ -322,17 +342,20 @@ export function computeFullDashboard({ articles, articlesComputed, purchases, sa
   });
   if (stockParado.length > 0) alerts.push({ icon: "🐌", text: `${stockParado.length} artigo${stockParado.length > 1 ? "s" : ""} não vendido${stockParado.length > 1 ? "s" : ""} há mais de ${cfg.artigo_parado_dias} dias`, severity: "medium", tab: "articles" });
 
-  const semFoto = articlesF.filter((a) => !a.foto_url && !ARTICLE_ESTADOS_SEM_ALERTA.includes(a.estado));
+  const semFoto = articlesVendaveis.filter((a) => !a.foto_url && !ARTICLE_ESTADOS_SEM_ALERTA.includes(a.estado));
   if (semFoto.length > 0) alerts.push({ icon: "🖼️", text: `${semFoto.length} artigo(s) sem fotografia`, severity: "low", tab: "articles" });
 
-  const semEtiqueta = articlesF.filter((a) => !a.etiquetado && !ARTICLE_ESTADOS_SEM_ALERTA.includes(a.estado));
+  const semEtiqueta = articlesVendaveis.filter((a) => !a.etiquetado && !ARTICLE_ESTADOS_SEM_ALERTA.includes(a.estado));
   if (semEtiqueta.length > 0) alerts.push({ icon: "🏷️", text: `${semEtiqueta.length} artigo(s) por etiquetar`, severity: "low", tab: "articles" });
+
+  const semPrecoVenda = articlesVendaveis.filter((a) => !(Number(a.valor_venda) > 0) && !ARTICLE_ESTADOS_SEM_ALERTA.includes(a.estado));
+  if (semPrecoVenda.length > 0) alerts.push({ icon: "💰", text: `${semPrecoVenda.length} artigo(s) vendável(eis) sem preço de venda`, severity: "high", tab: "articles" });
 
   const comprasSemFatura = purchasesAll.filter((p) => !p.fatura);
   if (comprasSemFatura.length > 0) alerts.push({ icon: "🧾", text: `${comprasSemFatura.length} compra(s) sem fatura`, severity: "medium", tab: "purchases" });
 
   const clientesComPendente = clientsComputed.filter((c) => salesAll.some((s) => s.client_id === c.id && s.estado === "Aguarda pagamento"));
-  if (clientesComPendente.length > 0) alerts.push({ icon: "📬", text: `${clientesComPendente.length} cliente(s) com encomendas pendentes`, severity: "low", tab: "clients" });
+  if (clientesComPendente.length > 0) alerts.push({ icon: "📬", text: `${clientesComPendente.length} cliente(s) com reservas por pagar`, severity: "low", tab: "clients" });
 
   const descontosExpirados = clients.filter((c) => c.codigo_desconto && !c.desconto_utilizado && c.data_fim_desconto && c.data_fim_desconto < hoje);
   if (descontosExpirados.length > 0) alerts.push({ icon: "🎟️", text: `${descontosExpirados.length} desconto(s) de cliente expirado(s)`, severity: "medium", tab: "clients" });
@@ -372,6 +395,89 @@ export function computeFullDashboard({ articles, articlesComputed, purchases, sa
     { key: "stockRisco", icon: "💰", label: "Stock em risco (sugestão de liquidar)", value: valorStockEmRisco, kind: "money" },
   ];
 
+  // ---------- linha 5: Material Interno (etiquetas, embalagens e outro apoio ao negócio) ----------
+  // Nunca é vendido, por isso tem os seus próprios KPIs — separados dos de stock vendável
+  // (linhas 1-2) para não misturar valores de negócio com material de apoio.
+  const totalArtigosInternos = articlesInternos.length;
+  const unidadesInternasDisponiveis = sum(articlesInternos, (a) => Math.max(a.stockAtual, 0));
+  const valorInvestidoInterno = sum(articlesInternos, (a) => a.valorTotalSemIVA);
+  const valorStockInternoAtual = sum(articlesInternos, (a) => a.valorStockSemIVA);
+  const semStockInternoCount = articlesInternos.filter((a) => a.stockAtual <= 0 && !ARTICLE_ESTADOS_SEM_ALERTA.includes(a.estado)).length;
+  const stockBaixoInternoCount = articlesInternos.filter((a) => a.stockAtual > 0 && a.stockAtual <= cfg.stock_baixo_limite && !ARTICLE_ESTADOS_SEM_ALERTA.includes(a.estado)).length;
+  // "Parado" para material interno é medido pelo último CONSUMO (etiqueta usada numa venda,
+  // ou artigo gasto numa Embalagem), já que nunca há vendas para o próprio artigo interno.
+  const stockParadoInterno = articlesInternos.filter((a) => {
+    if (a.stockAtual <= 0 || a.estado === "Pausado") return false;
+    const consumosEtq = (etiquetaConsumos || []).filter((c) => c.etiqueta_article_id === a.id).map((c) => (c.created_at || "").slice(0, 10));
+    const consumosEmb = (embalagemConsumos || []).filter((c) => c.article_id === a.id).map((c) => (c.created_at || "").slice(0, 10));
+    const movimentos = [...consumosEtq, ...consumosEmb].filter(Boolean).sort();
+    const ultimoMovimento = movimentos.length ? movimentos[movimentos.length - 1] : (a.created_at || "").slice(0, 10);
+    return ultimoMovimento && ultimoMovimento < paradoISO;
+  });
+
+  kpis.row5 = [
+    { key: "totalInternos", icon: "📦", label: "Tipos de material interno", value: totalArtigosInternos, kind: "int" },
+    { key: "dispInternos", icon: "✅", label: "Unidades disponíveis", value: unidadesInternasDisponiveis, kind: "int", suffix: " un." },
+    { key: "investidoInterno", icon: "💰", label: "Valor investido", value: valorInvestidoInterno, kind: "money" },
+    { key: "atualInterno", icon: "🏬", label: "Valor atual em stock", value: valorStockInternoAtual, kind: "money" },
+    { key: "paradoInterno", icon: "🐌", label: `Parado há mais de ${cfg.artigo_parado_dias} dias`, value: stockParadoInterno.length, kind: "int" },
+  ];
+  if (semStockInternoCount > 0) alerts.push({ icon: "🚫", text: `${semStockInternoCount} material(is) interno(s) esgotado(s)`, severity: "high", tab: "articles" });
+  if (stockBaixoInternoCount > 0) alerts.push({ icon: "📉", text: `${stockBaixoInternoCount} material(is) interno(s) com stock baixo`, severity: "medium", tab: "articles" });
+  if (stockParadoInterno.length > 0) alerts.push({ icon: "🐌", text: `${stockParadoInterno.length} material(is) interno(s) parado(s) há mais de ${cfg.artigo_parado_dias} dias`, severity: "low", tab: "articles" });
+
+  // ---------- linha 6: Encomendas (várias vendas do mesmo cliente, agrupadas para envio) ----------
+  const encomendasAll = encomendas || [];
+  const totalEncomendas = encomendasAll.length;
+  const encomendasEmPreparacao = encomendasAll.filter((e) => e.estado_envio === "Em Preparação" || e.estado_envio === "Não Definido" || !e.estado_envio).length;
+  const encomendasProntas = encomendasAll.filter((e) => e.estado_envio === "Preparado").length;
+  const encomendasAbertasIds = new Set(encomendasAll.filter((e) => e.estado_envio !== "Enviado" && e.estado_envio !== "Entregue em mãos").map((e) => e.id));
+  const valorEncomendasAbertas = sum(salesAll.filter((s) => s.encomenda_id && encomendasAbertasIds.has(s.encomenda_id)), (s) => s.valor_venda);
+  // Custo total (histórico) de material de embalagem e de etiquetas consumido — ligado às
+  // Encomendas e às vendas etiquetadas, respetivamente (ver secção "Etiquetas e Embalagens").
+  const custoTotalEmbalagem = sum((embalagemConsumos || []).filter((c) => !c.deleted_at), (c) => {
+    const artigo = articlesComputed.find((a) => a.id === c.article_id);
+    return Number(c.quantidade || 0) * Number(artigo?.preco_unitario || 0);
+  });
+  const custoTotalEtiquetas = sum((etiquetaConsumos || []).filter((c) => !c.deleted_at), (c) => {
+    const artigo = articlesComputed.find((a) => a.id === c.etiqueta_article_id);
+    return Number(artigo?.preco_unitario || 0);
+  });
+  // Tempo médio entre a encomenda ser criada e ser enviada — usa a data de criação (sempre
+  // disponível) até à Data de envio, só nas já enviadas/entregues.
+  const encomendasEnviadasComDatas = encomendasAll.filter((e) => (e.estado_envio === "Enviado" || e.estado_envio === "Entregue em mãos") && e.data_envio && e.created_at);
+  const temposPreparacaoDias = encomendasEnviadasComDatas.map((e) => {
+    const dias = (new Date(e.data_envio) - new Date(e.created_at)) / (1000 * 60 * 60 * 24);
+    return Math.max(0, Math.round(dias));
+  });
+  const tempoMedioPreparacao = temposPreparacaoDias.length ? Math.round(temposPreparacaoDias.reduce((s, d) => s + d, 0) / temposPreparacaoDias.length) : 0;
+
+  kpis.row6 = [
+    { key: "totalEncomendas", icon: "📦", label: "Total de encomendas", value: totalEncomendas, kind: "int" },
+    { key: "encPreparacao", icon: "🛠️", label: "Em preparação", value: encomendasEmPreparacao, kind: "int" },
+    { key: "encProntas", icon: "✅", label: "Prontas a enviar", value: encomendasProntas, kind: "int" },
+    { key: "valorEncAbertas", icon: "💰", label: "Valor em encomendas abertas", value: valorEncomendasAbertas, kind: "money" },
+    { key: "custoEmbalagem", icon: "📦", label: "Gasto total em embalamento", value: custoTotalEmbalagem, kind: "money" },
+    { key: "custoEtiquetas", icon: "🏷️", label: "Gasto total em etiquetas", value: custoTotalEtiquetas, kind: "money" },
+    { key: "tempoPreparacao", icon: "⏱️", label: "Tempo médio de preparação", value: tempoMedioPreparacao, kind: "int", suffix: " dias" },
+  ];
+  const encomendasSemFatura = encomendasAll.filter((e) => (e.estado_envio === "Enviado" || e.estado_envio === "Entregue em mãos") && !e.fatura_rosa && !e.fatura_rita);
+  if (encomendasSemFatura.length > 0) alerts.push({ icon: "🧾", text: `${encomendasSemFatura.length} encomenda(s) enviada(s) sem fatura emitida`, severity: "medium", tab: "sales" });
+
+  // ---------- top artigos mais comprados (soma das quantidades em compras "Concluída") ----------
+  const compradasPorArtigo = {};
+  (purchaseItems || []).forEach((pi) => {
+    const p = purchaseById[pi.purchase_id];
+    if (!p || p.estado !== "Concluída") return;
+    if (ownerFilter && p.quem_comprou !== ownerFilter) return;
+    compradasPorArtigo[pi.article_id] = (compradasPorArtigo[pi.article_id] || 0) + Number(pi.quantidade || 0);
+  });
+  const maisCompradosArtigos = Object.entries(compradasPorArtigo)
+    .map(([articleId, qtdComprada]) => ({ ...(articlesComputed.find((a) => a.id === articleId) || {}), qtdComprada }))
+    .filter((a) => a.id)
+    .sort((a, b) => b.qtdComprada - a.qtdComprada)
+    .slice(0, 10);
+
   const proximosDiretos = livesAll
     .filter((l) => (l.estado === "Preparação" || l.estado === "Em curso") && l.data >= hoje)
     .sort((a, b) => (a.data + (a.hora_inicio || "")).localeCompare(b.data + (b.hora_inicio || "")))
@@ -384,7 +490,7 @@ export function computeFullDashboard({ articles, articlesComputed, purchases, sa
   return {
     range, kpis, pulse, saude, financas, resumoHoje,
     charts: { comprasPorMes, vendasPorMes, lucroPorMes, artigosPorCategoria, artigosPorOwner, estadoStock, lucroPorOwner },
-    lists: { ultimasCompras, ultimasVendas, ultimosClientes, artigosReservados, ultimosPagamentos, ultimosMovimentos, clientesReservaPendente, melhoresClientes, pioresClientes, maisVendidosArtigos, maiorMargemArtigos, artigosNuncaVendidos, proximosDiretos, trocasAbertasLista },
+    lists: { ultimasCompras, ultimasVendas, ultimosClientes, artigosReservados, ultimosPagamentos, ultimosMovimentos, clientesReservaPendente, melhoresClientes, pioresClientes, maisVendidosArtigos, maiorMargemArtigos, artigosNuncaVendidos, maisCompradosArtigos, proximosDiretos, trocasAbertasLista },
     alerts,
   };
 }

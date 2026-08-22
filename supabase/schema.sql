@@ -55,17 +55,19 @@ create table if not exists articles (
   tipo text,
   artigo text not null,
   cor text,
-  fornecedor_id uuid references suppliers(id) on delete set null,
+  padrao text default 'Liso',
   owner text,
   preco_unitario numeric default 0,
-  iva numeric default 23,
+  preco_medio numeric default 0,
+  iva numeric default 0,
   quantidade numeric default 0,
   valor_venda numeric default 0,
   purchase_id uuid references purchases(id) on delete set null,
   foto_url text,
   publicado boolean not null default false,
   etiquetado boolean not null default false,
-  estado text not null default 'Em stock', -- 'Em stock' | 'Esgotado — vai repor' | 'Sem Reposição' | 'Pausado'
+  uso_interno boolean not null default false, -- material interno (etiquetas, caixas, sacos, etc.) — nunca vendido, marca-se sozinho a partir do Tipo
+  estado text not null default 'Em stock', -- 'Novo — Sem compras' | 'Em stock' | 'Esgotado — vai repor' | 'Sem Reposição' | 'Pausado' | 'A aguardar validação'
   is_test boolean not null default false,
   deleted_at timestamptz,
   created_at timestamptz default now()
@@ -117,10 +119,594 @@ create table if not exists sales (
   data_envio date,
   data date default current_date,
   notas text,
+  encomenda_id uuid, -- ver tabela encomendas, mais abaixo (fk adicionada depois, por ordem de criação)
   is_test boolean not null default false,
   deleted_at timestamptz,
   created_at timestamptz default now()
 );
+
+-- ---------- ENCOMENDAS (agrupam várias Vendas do mesmo cliente para um único envio) ----------
+-- Uma Venda pode continuar totalmente "solta", com os seus próprios dados de envio/fatura
+-- (secções 3 e 4 do formulário, exatamente como sempre foi). Quando várias Vendas do mesmo
+-- cliente vão ser preparadas e enviadas juntas, juntam-se numa Encomenda — a partir daí, o
+-- Estado de envio, Método, Código de rastreio, Data de envio e Fatura passam a viver aqui,
+-- partilhados por todas as Vendas que a Encomenda contém (ver sync_encomenda_to_sales, que
+-- mantém as Vendas sempre com os mesmos valores da Encomenda, para o resto da app — alertas,
+-- mensagens, exportação — continuar a funcionar sem alterações, lendo sempre os campos da Venda).
+create table if not exists encomendas (
+  id uuid primary key default gen_random_uuid(),
+  codigo text,
+  client_id uuid references clients(id) on delete set null,
+  estado_envio text default 'Não Definido',
+  metodo_envio text,
+  codigo_envio text,
+  data_envio date,
+  fatura_rosa text, -- fatura emitida pela Rosa para as suas peças desta encomenda
+  fatura_rosa_url text,
+  fatura_rita text, -- fatura emitida pela Rita para as suas peças desta encomenda
+  fatura_rita_url text,
+  embalagem_id uuid, -- ver tabela embalagens, mais abaixo (fk adicionada depois, por ordem de criação)
+  notas text,
+  is_test boolean not null default false,
+  deleted_at timestamptz,
+  created_at timestamptz default now()
+);
+
+alter table sales add column if not exists encomenda_id uuid;
+alter table sales drop constraint if exists sales_encomenda_id_fkey;
+alter table sales add constraint sales_encomenda_id_fkey foreign key (encomenda_id) references encomendas(id) on delete set null;
+
+-- v3i — a Fatura de uma encomenda passa a ser DUAS (Rosa e Rita), para o caso de as
+-- peças de uma mesma encomenda precisarem de faturas emitidas por pessoas diferentes.
+alter table encomendas add column if not exists fatura_rosa text;
+alter table encomendas add column if not exists fatura_rosa_url text;
+alter table encomendas add column if not exists fatura_rita text;
+alter table encomendas add column if not exists fatura_rita_url text;
+do $$
+begin
+  if exists (select 1 from information_schema.columns where table_name = 'encomendas' and column_name = 'fatura') then
+    update encomendas set fatura_rosa = coalesce(fatura_rosa, fatura), fatura_rosa_url = coalesce(fatura_rosa_url, fatura_url)
+    where fatura is not null or fatura_url is not null;
+    alter table encomendas drop column if exists fatura;
+    alter table encomendas drop column if exists fatura_url;
+  end if;
+end $$;
+
+alter table encomendas enable row level security;
+drop policy if exists "authenticated full access" on encomendas;
+create policy "authenticated full access" on encomendas
+  for all using (auth.uid() is not null) with check (auth.uid() is not null);
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'encomendas') then
+    alter publication supabase_realtime add table encomendas;
+  end if;
+end $$;
+
+-- ---------- EMBALAGENS (módulo de etiquetas e embalagens) ----------
+-- Um Tipo de Embalagem (ex: "Normal", "Premium") é uma receita fixa de artigos de
+-- Material Interno (sacos, papel de seda, cartões, autocolantes…) — nunca etiquetas, que
+-- continuam a dar baixa só pelo pisco "Peça já etiquetada" de cada venda (secção 6/9), para
+-- não haver risco de contar a etiqueta duas vezes. Escolher uma Embalagem numa Encomenda
+-- (obrigatório) dá baixa de 1 vez a todos os artigos da receita — ver embalagem_consumos.
+create table if not exists embalagens (
+  id uuid primary key default gen_random_uuid(),
+  nome text not null,
+  notas text,
+  ativo boolean not null default true,
+  is_test boolean not null default false,
+  deleted_at timestamptz,
+  created_at timestamptz default now()
+);
+
+create table if not exists embalagem_itens (
+  id uuid primary key default gen_random_uuid(),
+  embalagem_id uuid not null references embalagens(id) on delete cascade,
+  article_id uuid references articles(id) on delete set null, -- artigo fixo desta linha da receita (ex: "Saco grande")
+  quantidade numeric not null default 1,
+  is_test boolean not null default false,
+  created_at timestamptz default now()
+);
+
+-- Um registo por artigo consumido, por Encomenda — permite reverter (ao mudar de
+-- Embalagem, ou ao eliminar a Encomenda) devolvendo exatamente o que tinha sido gasto.
+create table if not exists embalagem_consumos (
+  id uuid primary key default gen_random_uuid(),
+  encomenda_id uuid not null references encomendas(id) on delete cascade,
+  article_id uuid references articles(id) on delete set null,
+  quantidade numeric not null default 1,
+  is_test boolean not null default false,
+  deleted_at timestamptz,
+  created_at timestamptz default now()
+);
+
+alter table embalagens enable row level security;
+drop policy if exists "authenticated full access" on embalagens;
+create policy "authenticated full access" on embalagens
+  for all using (auth.uid() is not null) with check (auth.uid() is not null);
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'embalagens') then
+    alter publication supabase_realtime add table embalagens;
+  end if;
+end $$;
+
+alter table embalagem_itens enable row level security;
+drop policy if exists "authenticated full access" on embalagem_itens;
+create policy "authenticated full access" on embalagem_itens
+  for all using (auth.uid() is not null) with check (auth.uid() is not null);
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'embalagem_itens') then
+    alter publication supabase_realtime add table embalagem_itens;
+  end if;
+end $$;
+
+alter table embalagem_consumos enable row level security;
+drop policy if exists "authenticated full access" on embalagem_consumos;
+create policy "authenticated full access" on embalagem_consumos
+  for all using (auth.uid() is not null) with check (auth.uid() is not null);
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'embalagem_consumos') then
+    alter publication supabase_realtime add table embalagem_consumos;
+  end if;
+end $$;
+
+alter table encomendas add column if not exists embalagem_id uuid;
+alter table encomendas drop constraint if exists encomendas_embalagem_id_fkey;
+alter table encomendas add constraint encomendas_embalagem_id_fkey foreign key (embalagem_id) references embalagens(id) on delete set null;
+
+-- ============================================================
+-- Cria (ou atualiza) um Tipo de Embalagem e a sua receita (lista de artigos + quantidade),
+-- tudo numa operação atómica — mesmo padrão de save_purchase_with_items.
+-- ============================================================
+create or replace function save_embalagem(
+  p_id uuid,
+  p_nome text,
+  p_notas text,
+  p_ativo boolean,
+  p_itens jsonb,
+  p_is_test boolean default false
+) returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_id uuid;
+  v_item jsonb;
+  v_item_id uuid;
+  v_keep_ids uuid[] := '{}';
+begin
+  if auth.uid() is null then
+    raise exception 'Não autenticado';
+  end if;
+  if coalesce(trim(p_nome), '') = '' then
+    raise exception 'Indica um nome para a Embalagem';
+  end if;
+
+  v_id := coalesce(p_id, gen_random_uuid());
+
+  if not exists (select 1 from embalagens where id = v_id) then
+    insert into embalagens (id, nome, notas, ativo, is_test)
+    values (v_id, p_nome, p_notas, coalesce(p_ativo, true), coalesce(p_is_test, false));
+  else
+    update embalagens set nome = p_nome, notas = p_notas, ativo = coalesce(p_ativo, true)
+    where id = v_id;
+  end if;
+
+  for v_item in select * from jsonb_array_elements(coalesce(p_itens, '[]'::jsonb))
+  loop
+    v_item_id := coalesce(nullif(v_item->>'id', '')::uuid, gen_random_uuid());
+    v_keep_ids := array_append(v_keep_ids, v_item_id);
+    insert into embalagem_itens (id, embalagem_id, article_id, quantidade, is_test)
+    values (v_item_id, v_id, (v_item->>'article_id')::uuid, coalesce((v_item->>'quantidade')::numeric, 1), coalesce(p_is_test, false))
+    on conflict (id) do update set
+      article_id = excluded.article_id, quantidade = excluded.quantidade;
+  end loop;
+
+  delete from embalagem_itens where embalagem_id = v_id and not (id = any(v_keep_ids));
+
+  return v_id;
+end;
+$$;
+
+-- ---------- CONSUMOS E TRANSFORMAÇÕES DE MATERIAL INTERNO ----------
+-- Além das baixas automáticas (etiqueta numa venda, embalagem numa encomenda), o material
+-- interno também pode ter: (a) um consumo manual avulso, com motivo (ex: "fita para decorar
+-- a montra"); (b) uma Transformação — consome vários materiais (inputs) e dá entrada de
+-- stock a um único artigo de saída (ex: 20 folhas + 5ml de tinteiro → +100 etiquetas). Uma
+-- Transformação pode ser aplicada a partir de um Tipo guardado (reutilizável, em Definições)
+-- ou avulsa, sem guardar receita nenhuma — as duas ficam sempre registadas do mesmo jeito.
+create table if not exists consumos_manuais (
+  id uuid primary key default gen_random_uuid(),
+  article_id uuid references articles(id) on delete set null,
+  quantidade numeric not null default 1,
+  motivo text,
+  data date default current_date,
+  is_test boolean not null default false,
+  deleted_at timestamptz,
+  created_at timestamptz default now()
+);
+
+-- Tipo de Transformação guardado (opcional) — receita fixa: vários inputs, sempre 1 output.
+create table if not exists transformacoes (
+  id uuid primary key default gen_random_uuid(),
+  nome text not null,
+  notas text,
+  output_article_id uuid references articles(id) on delete set null,
+  output_quantidade numeric not null default 1,
+  ativo boolean not null default true,
+  is_test boolean not null default false,
+  deleted_at timestamptz,
+  created_at timestamptz default now()
+);
+
+create table if not exists transformacao_itens (
+  id uuid primary key default gen_random_uuid(),
+  transformacao_id uuid not null references transformacoes(id) on delete cascade,
+  article_id uuid references articles(id) on delete set null, -- artigo fixo (input) desta linha da receita
+  quantidade numeric not null default 1,
+  is_test boolean not null default false,
+  created_at timestamptz default now()
+);
+
+-- Cada vez que uma Transformação é executada (a partir de um Tipo guardado, ou avulsa) fica
+-- um registo aqui — com o output e a data — e um por cada input em transformacao_execucao_itens,
+-- já com as quantidades reais (por lote × nº de lotes). Eliminar a execução devolve tudo.
+create table if not exists transformacao_execucoes (
+  id uuid primary key default gen_random_uuid(),
+  transformacao_id uuid references transformacoes(id) on delete set null, -- nulo se avulsa
+  nome text,
+  output_article_id uuid references articles(id) on delete set null,
+  output_quantidade numeric not null default 0,
+  lotes numeric not null default 1,
+  notas text,
+  is_test boolean not null default false,
+  deleted_at timestamptz,
+  created_at timestamptz default now()
+);
+
+create table if not exists transformacao_execucao_itens (
+  id uuid primary key default gen_random_uuid(),
+  execucao_id uuid not null references transformacao_execucoes(id) on delete cascade,
+  article_id uuid references articles(id) on delete set null,
+  quantidade numeric not null default 0,
+  is_test boolean not null default false,
+  created_at timestamptz default now()
+);
+
+alter table consumos_manuais enable row level security;
+drop policy if exists "authenticated full access" on consumos_manuais;
+create policy "authenticated full access" on consumos_manuais
+  for all using (auth.uid() is not null) with check (auth.uid() is not null);
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'consumos_manuais') then
+    alter publication supabase_realtime add table consumos_manuais;
+  end if;
+end $$;
+
+alter table transformacoes enable row level security;
+drop policy if exists "authenticated full access" on transformacoes;
+create policy "authenticated full access" on transformacoes
+  for all using (auth.uid() is not null) with check (auth.uid() is not null);
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'transformacoes') then
+    alter publication supabase_realtime add table transformacoes;
+  end if;
+end $$;
+
+alter table transformacao_itens enable row level security;
+drop policy if exists "authenticated full access" on transformacao_itens;
+create policy "authenticated full access" on transformacao_itens
+  for all using (auth.uid() is not null) with check (auth.uid() is not null);
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'transformacao_itens') then
+    alter publication supabase_realtime add table transformacao_itens;
+  end if;
+end $$;
+
+alter table transformacao_execucoes enable row level security;
+drop policy if exists "authenticated full access" on transformacao_execucoes;
+create policy "authenticated full access" on transformacao_execucoes
+  for all using (auth.uid() is not null) with check (auth.uid() is not null);
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'transformacao_execucoes') then
+    alter publication supabase_realtime add table transformacao_execucoes;
+  end if;
+end $$;
+
+alter table transformacao_execucao_itens enable row level security;
+drop policy if exists "authenticated full access" on transformacao_execucao_itens;
+create policy "authenticated full access" on transformacao_execucao_itens
+  for all using (auth.uid() is not null) with check (auth.uid() is not null);
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'transformacao_execucao_itens') then
+    alter publication supabase_realtime add table transformacao_execucao_itens;
+  end if;
+end $$;
+
+-- ============================================================
+-- Cria (ou atualiza) um Tipo de Transformação e a sua receita de inputs — mesmo padrão de
+-- save_embalagem.
+-- ============================================================
+create or replace function save_transformacao(
+  p_id uuid,
+  p_nome text,
+  p_notas text,
+  p_ativo boolean,
+  p_output_article_id uuid,
+  p_output_quantidade numeric,
+  p_itens jsonb,
+  p_is_test boolean default false
+) returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_id uuid;
+  v_item jsonb;
+  v_item_id uuid;
+  v_keep_ids uuid[] := '{}';
+begin
+  if auth.uid() is null then
+    raise exception 'Não autenticado';
+  end if;
+  if coalesce(trim(p_nome), '') = '' then
+    raise exception 'Indica um nome para a Transformação';
+  end if;
+  if p_output_article_id is null then
+    raise exception 'Escolhe o artigo de saída';
+  end if;
+
+  v_id := coalesce(p_id, gen_random_uuid());
+
+  if not exists (select 1 from transformacoes where id = v_id) then
+    insert into transformacoes (id, nome, notas, ativo, output_article_id, output_quantidade, is_test)
+    values (v_id, p_nome, p_notas, coalesce(p_ativo, true), p_output_article_id, coalesce(p_output_quantidade, 1), coalesce(p_is_test, false));
+  else
+    update transformacoes set
+      nome = p_nome, notas = p_notas, ativo = coalesce(p_ativo, true),
+      output_article_id = p_output_article_id, output_quantidade = coalesce(p_output_quantidade, 1)
+    where id = v_id;
+  end if;
+
+  for v_item in select * from jsonb_array_elements(coalesce(p_itens, '[]'::jsonb))
+  loop
+    v_item_id := coalesce(nullif(v_item->>'id', '')::uuid, gen_random_uuid());
+    v_keep_ids := array_append(v_keep_ids, v_item_id);
+    insert into transformacao_itens (id, transformacao_id, article_id, quantidade, is_test)
+    values (v_item_id, v_id, (v_item->>'article_id')::uuid, coalesce((v_item->>'quantidade')::numeric, 1), coalesce(p_is_test, false))
+    on conflict (id) do update set
+      article_id = excluded.article_id, quantidade = excluded.quantidade;
+  end loop;
+
+  delete from transformacao_itens where transformacao_id = v_id and not (id = any(v_keep_ids));
+
+  return v_id;
+end;
+$$;
+
+-- ============================================================
+-- Executa uma Transformação — a partir de um Tipo guardado (p_transformacao_id) ou avulsa
+-- (nula). p_itens e p_output_quantidade já vêm com as quantidades REAIS (por lote × nº de
+-- lotes) — dá baixa de stock a cada input e entrada de stock ao output, tudo numa operação.
+-- ============================================================
+create or replace function executar_transformacao(
+  p_transformacao_id uuid,
+  p_nome text,
+  p_output_article_id uuid,
+  p_output_quantidade numeric,
+  p_lotes numeric,
+  p_itens jsonb,
+  p_notas text,
+  p_is_test boolean default false
+) returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_execucao_id uuid;
+  v_item jsonb;
+begin
+  if auth.uid() is null then
+    raise exception 'Não autenticado';
+  end if;
+  if p_output_article_id is null then
+    raise exception 'Escolhe o artigo de saída';
+  end if;
+  if p_itens is null or jsonb_array_length(p_itens) = 0 then
+    raise exception 'Indica pelo menos um artigo consumido (input)';
+  end if;
+
+  v_execucao_id := gen_random_uuid();
+  insert into transformacao_execucoes (id, transformacao_id, nome, output_article_id, output_quantidade, lotes, notas, is_test)
+  values (v_execucao_id, p_transformacao_id, p_nome, p_output_article_id, coalesce(p_output_quantidade, 0), coalesce(p_lotes, 1), p_notas, coalesce(p_is_test, false));
+
+  for v_item in select * from jsonb_array_elements(p_itens)
+  loop
+    insert into transformacao_execucao_itens (execucao_id, article_id, quantidade, is_test)
+    values (v_execucao_id, (v_item->>'article_id')::uuid, coalesce((v_item->>'quantidade')::numeric, 0), coalesce(p_is_test, false));
+  end loop;
+
+  return v_execucao_id;
+end;
+$$;
+
+-- Mantém os campos de envio/fatura de cada Venda ligada a uma Encomenda sempre iguais aos
+-- da própria Encomenda. A Fatura espelhada na venda é a de quem a vendeu (quem_vendeu) —
+-- Rosa por defeito, se não estiver definido.
+create or replace function sync_encomenda_to_sales(p_encomenda_id uuid) returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if p_encomenda_id is null then return; end if;
+  update sales s set
+    estado_envio = e.estado_envio, metodo_envio = e.metodo_envio, codigo_envio = e.codigo_envio,
+    data_envio = e.data_envio,
+    fatura = case when s.quem_vendeu = 'Rita' then e.fatura_rita else e.fatura_rosa end,
+    fatura_url = case when s.quem_vendeu = 'Rita' then e.fatura_rita_url else e.fatura_rosa_url end
+  from encomendas e
+  where e.id = p_encomenda_id and s.encomenda_id = p_encomenda_id;
+end;
+$$;
+
+create or replace function trg_encomendas_sync_sales_fn() returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  perform sync_encomenda_to_sales(new.id);
+  return new;
+end;
+$$;
+drop trigger if exists trg_encomendas_sync_sales on encomendas;
+create trigger trg_encomendas_sync_sales after update on encomendas
+for each row execute function trg_encomendas_sync_sales_fn();
+
+-- Sincroniza também quando uma venda acaba de ser ligada a uma encomenda (encomenda_id muda).
+create or replace function trg_sales_sync_from_encomenda_fn() returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if new.encomenda_id is not null and (old.encomenda_id is distinct from new.encomenda_id) then
+    perform sync_encomenda_to_sales(new.encomenda_id);
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists trg_sales_encomenda_change on sales;
+create trigger trg_sales_encomenda_change after update of encomenda_id on sales
+for each row execute function trg_sales_sync_from_encomenda_fn();
+
+-- ============================================================
+-- Cria (ou atualiza) uma Encomenda e liga-lhe as Vendas escolhidas, tudo numa operação
+-- atómica. Todas as vendas têm de ser do mesmo cliente da encomenda, e ainda não pertencer
+-- a outra encomenda. Só é possível ACRESCENTAR vendas novas enquanto o Estado de envio da
+-- encomenda for "Em Preparação" — as já incluídas mantêm-se mesmo que o estado tenha avançado.
+-- Um Tipo de Embalagem é obrigatório — ao escolher (ou mudar) a Embalagem, dá-se baixa de
+-- 1 vez a todos os artigos da receita (ver embalagem_consumos); mudar de Embalagem devolve
+-- o consumo antigo e aplica o novo.
+-- ============================================================
+drop function if exists save_encomenda(uuid, text, uuid, text, text, text, date, text, text, text, text, text, uuid[], boolean);
+create or replace function save_encomenda(
+  p_id uuid,
+  p_codigo text,
+  p_client_id uuid,
+  p_estado_envio text,
+  p_metodo_envio text,
+  p_codigo_envio text,
+  p_data_envio date,
+  p_fatura_rosa text,
+  p_fatura_rosa_url text,
+  p_fatura_rita text,
+  p_fatura_rita_url text,
+  p_embalagem_id uuid,
+  p_notas text,
+  p_sale_ids uuid[],
+  p_is_test boolean default false
+) returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_id uuid;
+  v_estado_atual text;
+  v_embalagem_atual uuid;
+  v_invalidas int;
+  v_novas_bloqueadas int;
+begin
+  if auth.uid() is null then
+    raise exception 'Não autenticado';
+  end if;
+  if p_client_id is null then
+    raise exception 'Indica o cliente da encomenda';
+  end if;
+  if p_embalagem_id is null then
+    raise exception 'Escolhe um Tipo de Embalagem para a encomenda';
+  end if;
+  if p_sale_ids is null or array_length(p_sale_ids, 1) is null then
+    raise exception 'Escolhe pelo menos uma venda para a encomenda';
+  end if;
+
+  v_id := coalesce(p_id, gen_random_uuid());
+
+  select count(*) into v_invalidas
+  from sales
+  where id = any(p_sale_ids)
+    and (client_id is distinct from p_client_id or (encomenda_id is not null and encomenda_id is distinct from v_id));
+  if v_invalidas > 0 then
+    raise exception 'Todas as vendas escolhidas têm de ser do mesmo cliente e ainda não pertencer a outra encomenda';
+  end if;
+
+  select estado_envio, embalagem_id into v_estado_atual, v_embalagem_atual from encomendas where id = v_id;
+  if v_estado_atual is not null and v_estado_atual <> 'Em Preparação' then
+    select count(*) into v_novas_bloqueadas
+    from unnest(p_sale_ids) sid
+    where not exists (select 1 from sales where id = sid and encomenda_id = v_id);
+    if v_novas_bloqueadas > 0 then
+      raise exception 'Só é possível acrescentar vendas a uma encomenda enquanto o Estado de envio for "Em Preparação"';
+    end if;
+  end if;
+
+  if v_estado_atual is null then
+    insert into encomendas (id, codigo, client_id, estado_envio, metodo_envio, codigo_envio, data_envio, fatura_rosa, fatura_rosa_url, fatura_rita, fatura_rita_url, embalagem_id, notas, is_test)
+    values (v_id, p_codigo, p_client_id, coalesce(p_estado_envio, 'Não Definido'), p_metodo_envio, p_codigo_envio, p_data_envio, p_fatura_rosa, p_fatura_rosa_url, p_fatura_rita, p_fatura_rita_url, p_embalagem_id, p_notas, coalesce(p_is_test, false));
+  else
+    update encomendas set
+      codigo = p_codigo, client_id = p_client_id, estado_envio = coalesce(p_estado_envio, 'Não Definido'),
+      metodo_envio = p_metodo_envio, codigo_envio = p_codigo_envio, data_envio = p_data_envio,
+      fatura_rosa = p_fatura_rosa, fatura_rosa_url = p_fatura_rosa_url,
+      fatura_rita = p_fatura_rita, fatura_rita_url = p_fatura_rita_url,
+      embalagem_id = p_embalagem_id, notas = p_notas
+    where id = v_id;
+  end if;
+
+  if v_embalagem_atual is distinct from p_embalagem_id then
+    update embalagem_consumos set deleted_at = now() where encomenda_id = v_id and deleted_at is null;
+    insert into embalagem_consumos (encomenda_id, article_id, quantidade, is_test)
+    select v_id, ei.article_id, ei.quantidade, coalesce(p_is_test, false)
+    from embalagem_itens ei
+    where ei.embalagem_id = p_embalagem_id;
+  end if;
+
+  update sales set encomenda_id = v_id where id = any(p_sale_ids) and (encomenda_id is null or encomenda_id = v_id);
+
+  perform sync_encomenda_to_sales(v_id);
+
+  return v_id;
+end;
+$$;
+
+-- Elimina uma Encomenda: solta as vendas (Estado de envio "Não Definido"), devolve o
+-- consumo de Embalagem, e move a Encomenda para a Lixeira.
+create or replace function delete_encomenda(p_id uuid) returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if auth.uid() is null then
+    raise exception 'Não autenticado';
+  end if;
+  update sales set encomenda_id = null, estado_envio = 'Não Definido', metodo_envio = null, codigo_envio = null, data_envio = null, fatura = null, fatura_url = null
+  where encomenda_id = p_id;
+  update embalagem_consumos set deleted_at = now() where encomenda_id = p_id and deleted_at is null;
+  update encomendas set deleted_at = now() where id = p_id;
+end;
+$$;
 
 -- ---------- CENTRO DE CONTEÚDO (publicações nas redes sociais) ----------
 create table if not exists content_items (
@@ -193,10 +779,16 @@ create table if not exists settings (
 );
 
 alter table settings enable row level security;
+drop policy if exists "authenticated full access" on settings;
 create policy "authenticated full access" on settings
   for all using (auth.uid() is not null) with check (auth.uid() is not null);
 
-alter publication supabase_realtime add table settings;
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'settings') then
+    alter publication supabase_realtime add table settings;
+  end if;
+end $$;
 
 -- ---------- CENTRO DE TAREFAS ----------
 -- Tarefas "automáticas" são geradas sozinhas pela app a partir de regras sobre outros dados
@@ -220,10 +812,16 @@ create table if not exists tasks (
 );
 
 alter table tasks enable row level security;
+drop policy if exists "authenticated full access" on tasks;
 create policy "authenticated full access" on tasks
   for all using (auth.uid() is not null) with check (auth.uid() is not null);
 
-alter publication supabase_realtime add table tasks;
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'tasks') then
+    alter publication supabase_realtime add table tasks;
+  end if;
+end $$;
 
 -- ---------- DIRETOS ----------
 -- Um direto (live) tem itens preparados (artigos ou conjuntos de artigos, com preço de
@@ -273,13 +871,25 @@ create table if not exists live_registos (
 
 alter table lives enable row level security;
 alter table live_registos enable row level security;
+drop policy if exists "authenticated full access" on lives;
 create policy "authenticated full access" on lives
   for all using (auth.uid() is not null) with check (auth.uid() is not null);
+drop policy if exists "authenticated full access" on live_registos;
 create policy "authenticated full access" on live_registos
   for all using (auth.uid() is not null) with check (auth.uid() is not null);
 
-alter publication supabase_realtime add table lives;
-alter publication supabase_realtime add table live_registos;
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'lives') then
+    alter publication supabase_realtime add table lives;
+  end if;
+end $$;
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'live_registos') then
+    alter publication supabase_realtime add table live_registos;
+  end if;
+end $$;
 
 -- ---------- COMUNICAÇÃO COM O CLIENTE ----------
 -- Modelos de mensagem parametrizáveis por situação (ex: "Pagamento confirmado",
@@ -299,10 +909,16 @@ create table if not exists message_templates (
 );
 
 alter table message_templates enable row level security;
+drop policy if exists "authenticated full access" on message_templates;
 create policy "authenticated full access" on message_templates
   for all using (auth.uid() is not null) with check (auth.uid() is not null);
 
-alter publication supabase_realtime add table message_templates;
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'message_templates') then
+    alter publication supabase_realtime add table message_templates;
+  end if;
+end $$;
 
 -- ---------- DATAS DE MARKETING (sugestões de conteúdo no Centro de Tarefas) ----------
 -- Datas "fixas" (mês/dia todos os anos) geríveis pela Rosa/Rita nas Definições — Dia da Mãe
@@ -320,10 +936,16 @@ create table if not exists marketing_dates (
 );
 
 alter table marketing_dates enable row level security;
+drop policy if exists "authenticated full access" on marketing_dates;
 create policy "authenticated full access" on marketing_dates
   for all using (auth.uid() is not null) with check (auth.uid() is not null);
 
-alter publication supabase_realtime add table marketing_dates;
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'marketing_dates') then
+    alter publication supabase_realtime add table marketing_dates;
+  end if;
+end $$;
 
 insert into marketing_dates (mes, dia, nome) values
   (1, 1, 'Ano Novo'),
@@ -334,6 +956,177 @@ insert into marketing_dates (mes, dia, nome) values
   (10, 31, 'Halloween'),
   (12, 25, 'Natal')
 on conflict do nothing;
+
+-- ---------- TIPOS DE ARTIGO (totalmente parametrizável nas Definições) ----------
+-- Substitui a antiga lista fixa de Tipos no código: cada Tipo (ex: "Blazer", "Saco de
+-- plástico 10x10cm") pertence a um Grupo (ex: "Vestuário", "Embalagens") e diz à app se
+-- é vendável a clientes ou só material interno (permite_venda), e se costuma ter Tamanho
+-- (tem_tamanho). Geríveis livremente pela Rosa/Rita nas Definições — sem tocar no código.
+create table if not exists article_tipos (
+  id uuid primary key default gen_random_uuid(),
+  grupo text not null,
+  peca text not null,
+  codigo text not null, -- prefixo do SKU, ex: "BLZ"
+  permite_venda boolean not null default true,
+  tem_tamanho boolean not null default false,
+  eh_etiqueta boolean not null default false, -- artigos deste Tipo servem para dar baixa ao marcar "Peça já etiquetada" noutro artigo
+  ativo boolean not null default true,
+  is_test boolean not null default false,
+  deleted_at timestamptz,
+  created_at timestamptz default now()
+);
+
+alter table article_tipos enable row level security;
+drop policy if exists "authenticated full access" on article_tipos;
+create policy "authenticated full access" on article_tipos
+  for all using (auth.uid() is not null) with check (auth.uid() is not null);
+
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'article_tipos') then
+    alter publication supabase_realtime add table article_tipos;
+  end if;
+end $$;
+drop trigger if exists trg_audit_article_tipos on article_tipos;
+create trigger trg_audit_article_tipos after insert or update or delete on article_tipos for each row execute function audit_trigger();
+
+insert into article_tipos (grupo, peca, codigo, permite_venda, tem_tamanho, eh_etiqueta)
+select * from (values
+  ('Vestuário', 'Blazer', 'BLZ', true, true, false),
+  ('Vestuário', 'Blusa', 'BLU', true, true, false),
+  ('Vestuário', 'Calças', 'CAL', true, true, false),
+  ('Vestuário', 'Camisa', 'CAM', true, true, false),
+  ('Vestuário', 'Camisola', 'CML', true, true, false),
+  ('Vestuário', 'Casaco', 'CAS', true, true, false),
+  ('Vestuário', 'Colete', 'CTE', true, true, false),
+  ('Vestuário', 'Fato de banho', 'FDB', true, true, false),
+  ('Vestuário', 'Jeans', 'JNS', true, true, false),
+  ('Vestuário', 'Leggings', 'LEG', true, true, false),
+  ('Vestuário', 'Pijama', 'PIJ', true, true, false),
+  ('Vestuário', 'Roupa interior', 'RIN', true, true, false),
+  ('Vestuário', 'Saia', 'SAI', true, true, false),
+  ('Vestuário', 'Sweatshirt', 'SWT', true, true, false),
+  ('Vestuário', 'T-shirt', 'TSH', true, true, false),
+  ('Vestuário', 'Vestido', 'VES', true, true, false),
+  ('Acessórios', 'Bijuteria', 'BIJ', true, false, false),
+  ('Acessórios', 'Boné', 'BON', true, false, false),
+  ('Acessórios', 'Cachecol', 'CCH', true, false, false),
+  ('Acessórios', 'Carteira', 'CRT', true, false, false),
+  ('Acessórios', 'Chapéu', 'CHP', true, false, false),
+  ('Acessórios', 'Cinto', 'CIN', true, true, false),
+  ('Acessórios', 'Lenço', 'LEN', true, false, false),
+  ('Acessórios', 'Luvas', 'LUV', true, false, false),
+  ('Acessórios', 'Mala', 'MAL', true, false, false),
+  ('Acessórios', 'Óculos', 'OCL', true, false, false),
+  ('Calçado', 'Botas', 'BOT', true, true, false),
+  ('Calçado', 'Chinelos', 'CHL', true, true, false),
+  ('Calçado', 'Sandálias', 'SAN', true, true, false),
+  ('Calçado', 'Sapatos', 'SAP', true, true, false),
+  ('Calçado', 'Saltos altos', 'SLT', true, true, false),
+  ('Calçado', 'Ténis', 'TEN', true, true, false),
+  ('Material Interno', 'Cabides', 'CAB', false, false, false),
+  ('Material Interno', 'Caixas', 'CXA', false, false, false),
+  ('Material Interno', 'Cartões', 'CTO', false, false, false),
+  ('Material Interno', 'Etiquetas', 'ETQ', false, false, true),
+  ('Material Interno', 'Manequins', 'MNQ', false, false, false),
+  ('Material Interno', 'Material promocional', 'PRM', false, false, false),
+  ('Material Interno', 'Sacos de envio', 'SCE', false, false, false),
+  ('Material Interno', 'Outro (material interno)', 'OMI', false, false, false)
+) as seed(grupo, peca, codigo, permite_venda, tem_tamanho, eh_etiqueta)
+where not exists (select 1 from article_tipos);
+
+-- ---------- CORES E PADRÕES (totalmente parametrizável nas Definições) ----------
+-- A Cor e o Padrão de um artigo passam a ser dois campos independentes (antes eram um só
+-- seletor combinado). Cada lista é gerível livremente pela Rosa/Rita nas Definições, tal
+-- como os Tipos de Artigo — sem tocar em código.
+create table if not exists article_cores (
+  id uuid primary key default gen_random_uuid(),
+  valor text not null,
+  ativo boolean not null default true,
+  is_test boolean not null default false,
+  deleted_at timestamptz,
+  created_at timestamptz default now()
+);
+alter table article_cores enable row level security;
+drop policy if exists "authenticated full access" on article_cores;
+create policy "authenticated full access" on article_cores
+  for all using (auth.uid() is not null) with check (auth.uid() is not null);
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'article_cores') then
+    alter publication supabase_realtime add table article_cores;
+  end if;
+end $$;
+drop trigger if exists trg_audit_article_cores on article_cores;
+create trigger trg_audit_article_cores after insert or update or delete on article_cores for each row execute function audit_trigger();
+
+create table if not exists article_padroes (
+  id uuid primary key default gen_random_uuid(),
+  valor text not null,
+  ativo boolean not null default true,
+  is_test boolean not null default false,
+  deleted_at timestamptz,
+  created_at timestamptz default now()
+);
+alter table article_padroes enable row level security;
+drop policy if exists "authenticated full access" on article_padroes;
+create policy "authenticated full access" on article_padroes
+  for all using (auth.uid() is not null) with check (auth.uid() is not null);
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'article_padroes') then
+    alter publication supabase_realtime add table article_padroes;
+  end if;
+end $$;
+drop trigger if exists trg_audit_article_padroes on article_padroes;
+create trigger trg_audit_article_padroes after insert or update or delete on article_padroes for each row execute function audit_trigger();
+
+-- "N/A" é sempre a cor por defeito de um artigo novo — tem de existir na lista.
+insert into article_cores (valor)
+select * from (values
+  ('N/A'), ('Amarelo'), ('Amarelo mostarda'), ('Azul'), ('Azul bebé'), ('Azul claro'), ('Azul escuro'),
+  ('Azul esverdeado'), ('Azul marinho'), ('Azul turquesa'), ('Bege'), ('Branco'), ('Caramelo'),
+  ('Castanho'), ('Castanho claro'), ('Castanho escuro'), ('Cinzento'), ('Cinzento claro'),
+  ('Cinzento escuro'), ('Coral'), ('Creme'), ('Dourado'), ('Grafite'), ('Laranja'), ('Lavanda'),
+  ('Lilás'), ('Nude'), ('Prateado'), ('Preto'), ('Rosa'), ('Rosa choque'), ('Rosa claro'),
+  ('Rosa velho'), ('Rosa vivo'), ('Roxo'), ('Terracota'), ('Verde'), ('Verde água'), ('Verde claro'),
+  ('Verde escuro'), ('Verde esmeralda'), ('Verde lima'), ('Verde oliva'), ('Vermelho'), ('Vinho')
+) as seed(valor)
+where not exists (select 1 from article_cores);
+
+-- "Liso" é sempre o padrão por defeito de um artigo novo — tem de existir na lista.
+insert into article_padroes (valor)
+select * from (values
+  ('Liso'), ('Animal print'), ('Estampado'), ('Floral'), ('Multicolor'), ('Poás'), ('Riscas'), ('Xadrez')
+) as seed(valor)
+where not exists (select 1 from article_padroes);
+
+-- ---------- CONSUMO DE ETIQUETAS FÍSICAS ----------
+-- Ao assinalar "Peça já etiquetada" num artigo vendável, dá-se baixa de 1 unidade de stock
+-- a um artigo do Tipo marcado como "eh_etiqueta" (article_tipos, ex: "Etiquetas") — cada
+-- marcação cria uma linha aqui. Desmarcar elimina (soft-delete) a linha correspondente,
+-- devolvendo a unidade ao stock da etiqueta. Conta como saída de stock no computeArticles,
+-- tal como uma venda ou uma troca.
+create table if not exists etiqueta_consumos (
+  id uuid primary key default gen_random_uuid(),
+  article_id uuid not null references articles(id) on delete cascade, -- artigo vendável que foi etiquetado
+  etiqueta_article_id uuid references articles(id) on delete set null, -- artigo-etiqueta (Material Interno) de onde saiu a unidade
+  is_test boolean not null default false,
+  deleted_at timestamptz,
+  created_at timestamptz default now()
+);
+alter table etiqueta_consumos enable row level security;
+drop policy if exists "authenticated full access" on etiqueta_consumos;
+create policy "authenticated full access" on etiqueta_consumos
+  for all using (auth.uid() is not null) with check (auth.uid() is not null);
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'etiqueta_consumos') then
+    alter publication supabase_realtime add table etiqueta_consumos;
+  end if;
+end $$;
+drop trigger if exists trg_audit_etiqueta_consumos on etiqueta_consumos;
+create trigger trg_audit_etiqueta_consumos after insert or update or delete on etiqueta_consumos for each row execute function audit_trigger();
 
 insert into settings (id) values (true) on conflict do nothing;
 
@@ -374,17 +1167,325 @@ create table if not exists exchanges (
 );
 
 alter table exchanges enable row level security;
+drop policy if exists "authenticated full access" on exchanges;
 create policy "authenticated full access" on exchanges
   for all using (auth.uid() is not null) with check (auth.uid() is not null);
 
-alter publication supabase_realtime add table exchanges;
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'exchanges') then
+    alter publication supabase_realtime add table exchanges;
+  end if;
+end $$;
+
+-- ---------- ITENS DE COMPRA ----------
+-- A app gira à volta do artigo: uma compra a um fornecedor é composta por um ou mais
+-- itens, cada um ligado a um artigo do catálogo. A quantidade e o valor de compra
+-- definem-se AQUI, por item — nunca à mão no artigo. Sempre que um item de compra é
+-- criado, editado ou eliminado (ou a compra é eliminada/restaurada), a "quantidade" e o
+-- "preco_unitario" (valor da última compra) do artigo são recalculados automaticamente
+-- pela base de dados (ver recompute_article_purchase_aggregates, mais abaixo) — nunca
+-- editados diretamente na Ficha do Artigo.
+create table if not exists purchase_items (
+  id uuid primary key default gen_random_uuid(),
+  purchase_id uuid not null references purchases(id) on delete cascade,
+  article_id uuid references articles(id) on delete set null,
+  quantidade numeric not null default 1,
+  valor_unitario numeric not null default 0, -- custo unitário desta compra, s/IVA
+  referencia text, -- referência/código do fornecedor para este artigo, se tiver
+  notas text,
+  is_test boolean not null default false,
+  created_at timestamptz default now()
+);
+
+create index if not exists purchase_items_purchase_idx on purchase_items(purchase_id);
+create index if not exists purchase_items_article_idx on purchase_items(article_id);
+
+alter table purchase_items enable row level security;
+drop policy if exists "authenticated full access" on purchase_items;
+create policy "authenticated full access" on purchase_items
+  for all using (auth.uid() is not null) with check (auth.uid() is not null);
+
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'purchase_items') then
+    alter publication supabase_realtime add table purchase_items;
+  end if;
+end $$;
+
+-- Recalcula, a partir dos itens de compra ainda ativos (compra não eliminada, mesmo
+-- modo real/teste do artigo, e — importante — só compras já "Concluída") a quantidade
+-- total adquirida, o valor da última compra (preço unitário do item de compra mais
+-- recente) e o preço médio (custo médio, ponderado pela quantidade, de todas as compras
+-- concluídas) de UM artigo. O stock de uma compra "Reservado" ou "Enviado" ainda NÃO
+-- conta para o artigo — só passa a contar quando a compra fica "Concluída".
+create or replace function recompute_article_purchase_aggregates(p_article_id uuid) returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if p_article_id is null then return; end if;
+  update articles a set
+    quantidade = coalesce((
+      select sum(pi.quantidade) from purchase_items pi
+      join purchases p on p.id = pi.purchase_id
+      where pi.article_id = a.id and p.deleted_at is null and p.is_test = a.is_test and p.estado = 'Concluída'
+    ), 0),
+    preco_unitario = coalesce((
+      select pi.valor_unitario from purchase_items pi
+      join purchases p on p.id = pi.purchase_id
+      where pi.article_id = a.id and p.deleted_at is null and p.is_test = a.is_test and p.estado = 'Concluída'
+      order by p.data desc, pi.created_at desc
+      limit 1
+    ), a.preco_unitario),
+    preco_medio = coalesce((
+      select sum(pi.quantidade * pi.valor_unitario) / nullif(sum(pi.quantidade), 0) from purchase_items pi
+      join purchases p on p.id = pi.purchase_id
+      where pi.article_id = a.id and p.deleted_at is null and p.is_test = a.is_test and p.estado = 'Concluída'
+    ), 0)
+  where a.id = p_article_id;
+end;
+$$;
+
+create or replace function trg_purchase_items_recompute_article() returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if (tg_op = 'DELETE') then
+    perform recompute_article_purchase_aggregates(old.article_id);
+    return old;
+  elsif (tg_op = 'UPDATE') then
+    perform recompute_article_purchase_aggregates(old.article_id);
+    if new.article_id is distinct from old.article_id then
+      perform recompute_article_purchase_aggregates(new.article_id);
+    end if;
+    return new;
+  else
+    perform recompute_article_purchase_aggregates(new.article_id);
+    return new;
+  end if;
+end;
+$$;
+
+drop trigger if exists trg_purchase_items_aiud on purchase_items;
+create trigger trg_purchase_items_aiud after insert or update or delete on purchase_items
+for each row execute function trg_purchase_items_recompute_article();
+
+-- Quando uma compra é eliminada (Lixeira) ou restaurada, os artigos dos seus itens
+-- têm de ser recalculados (a compra deixa/passa a contar de novo para o stock).
+create or replace function trg_purchases_soft_delete_recompute() returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare r record;
+begin
+  if new.deleted_at is distinct from old.deleted_at then
+    for r in select distinct article_id from purchase_items where purchase_id = new.id and article_id is not null loop
+      perform recompute_article_purchase_aggregates(r.article_id);
+    end loop;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_purchases_soft_delete on purchases;
+create trigger trg_purchases_soft_delete after update of deleted_at on purchases
+for each row execute function trg_purchases_soft_delete_recompute();
+
+-- Quando o Estado de uma compra muda (ex: "Reservado" → "Concluída", ou vice-versa ao
+-- corrigir), os artigos dos seus itens têm de ser recalculados — o stock só entra no
+-- artigo quando a compra fica "Concluída", e sai de novo se deixar de o estar.
+create or replace function trg_purchases_estado_recompute() returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare r record;
+begin
+  if new.estado is distinct from old.estado then
+    for r in select distinct article_id from purchase_items where purchase_id = new.id and article_id is not null loop
+      perform recompute_article_purchase_aggregates(r.article_id);
+    end loop;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_purchases_estado_change on purchases;
+create trigger trg_purchases_estado_change after update of estado on purchases
+for each row execute function trg_purchases_estado_recompute();
+
+-- Mantém purchases.valor_aquisicao (o total da compra) sempre igual à soma dos seus itens.
+create or replace function recompute_purchase_total(p_purchase_id uuid) returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if p_purchase_id is null then return; end if;
+  update purchases set valor_aquisicao = coalesce((
+    select sum(quantidade * valor_unitario) from purchase_items where purchase_id = p_purchase_id
+  ), 0) where id = p_purchase_id;
+end;
+$$;
+
+create or replace function trg_purchase_items_recompute_total() returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if (tg_op = 'DELETE') then
+    perform recompute_purchase_total(old.purchase_id);
+    return old;
+  else
+    perform recompute_purchase_total(new.purchase_id);
+    if tg_op = 'UPDATE' and new.purchase_id is distinct from old.purchase_id then
+      perform recompute_purchase_total(old.purchase_id);
+    end if;
+    return new;
+  end if;
+end;
+$$;
+
+drop trigger if exists trg_purchase_items_total_aiud on purchase_items;
+create trigger trg_purchase_items_total_aiud after insert or update or delete on purchase_items
+for each row execute function trg_purchase_items_recompute_total();
+
+-- ============================================================
+-- Compras sem conflitos — grava a compra (cabeçalho) e os seus itens numa única
+-- operação atómica. `p_items` é um array JSON de { id?, article_id, quantidade,
+-- valor_unitario, notas? } — qualquer item já existente que deixe de vir na lista é
+-- removido. Os triggers acima tratam de atualizar o artigo (quantidade/preco_unitario)
+-- e o total da compra automaticamente a seguir.
+-- ============================================================
+create or replace function save_purchase_with_items(
+  p_id uuid,
+  p_codigo text,
+  p_supplier_id uuid,
+  p_desconto numeric,
+  p_estado text,
+  p_data_envio date,
+  p_data_chegada date,
+  p_codigo_rastreio text,
+  p_fatura text,
+  p_fatura_url text,
+  p_quem_comprou text,
+  p_data date,
+  p_notas text,
+  p_items jsonb,
+  p_is_test boolean default false
+) returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_id uuid;
+  v_item jsonb;
+  v_item_id uuid;
+  v_keep_ids uuid[] := array[]::uuid[];
+  v_is_test boolean;
+begin
+  if auth.uid() is null then
+    raise exception 'Não autenticado';
+  end if;
+  if p_supplier_id is null then
+    raise exception 'Indica o fornecedor da compra';
+  end if;
+
+  v_id := coalesce(p_id, gen_random_uuid());
+
+  if not exists (select 1 from purchases where id = v_id) then
+    insert into purchases (
+      id, codigo, supplier_id, desconto, estado, data_envio, data_chegada,
+      codigo_rastreio, fatura, fatura_url, quem_comprou, data, notas, is_test
+    ) values (
+      v_id, p_codigo, p_supplier_id, coalesce(p_desconto, 0), coalesce(p_estado, 'Reservado'),
+      p_data_envio, p_data_chegada, p_codigo_rastreio, p_fatura, p_fatura_url, p_quem_comprou,
+      coalesce(p_data, current_date), p_notas, coalesce(p_is_test, false)
+    );
+  else
+    update purchases set
+      codigo = p_codigo, supplier_id = p_supplier_id, desconto = coalesce(p_desconto, 0),
+      estado = coalesce(p_estado, 'Reservado'), data_envio = p_data_envio, data_chegada = p_data_chegada,
+      codigo_rastreio = p_codigo_rastreio, fatura = p_fatura, fatura_url = p_fatura_url,
+      quem_comprou = p_quem_comprou, data = coalesce(p_data, current_date), notas = p_notas
+      -- nota: is_test nunca se altera num update — fixo desde a criação
+    where id = v_id;
+  end if;
+
+  -- itens novos herdam sempre o modo real/teste REAL da compra (nunca o do interruptor
+  -- no momento da chamada) — importante ao editar uma compra já existente.
+  select is_test into v_is_test from purchases where id = v_id;
+
+  for v_item in select * from jsonb_array_elements(coalesce(p_items, '[]'::jsonb))
+  loop
+    if (v_item->>'article_id') is null or (v_item->>'article_id') = '' then
+      raise exception 'Todos os itens da compra têm de ter um artigo escolhido';
+    end if;
+    v_item_id := coalesce(nullif(v_item->>'id', '')::uuid, gen_random_uuid());
+    v_keep_ids := array_append(v_keep_ids, v_item_id);
+    insert into purchase_items (id, purchase_id, article_id, quantidade, valor_unitario, referencia, notas, is_test)
+    values (
+      v_item_id, v_id, (v_item->>'article_id')::uuid,
+      coalesce((v_item->>'quantidade')::numeric, 0),
+      coalesce((v_item->>'valor_unitario')::numeric, 0),
+      v_item->>'referencia', v_item->>'notas', coalesce(v_is_test, false)
+    )
+    on conflict (id) do update set
+      article_id = excluded.article_id, quantidade = excluded.quantidade,
+      valor_unitario = excluded.valor_unitario, referencia = excluded.referencia, notas = excluded.notas;
+  end loop;
+
+  delete from purchase_items
+  where purchase_id = v_id
+    and not (id = any(v_keep_ids));
+
+  return v_id;
+end;
+$$;
 
 -- ============================================================
 -- Garante as colunas mais recentes mesmo que a tabela já existisse
 -- de uma versão anterior deste ficheiro (seguro correr sempre que
 -- houver uma atualização).
 -- ============================================================
-alter table articles add column if not exists purchase_id uuid references purchases(id) on delete set null;
+-- v3 — a app passa a girar à volta do artigo: a compra tem itens (quantidade + valor
+-- definidos por item, ver purchase_items acima), e deixam de se editar à mão no artigo.
+-- "purchase_id" no artigo (link único artigo→compra) deixa de existir — um artigo pode
+-- agora ter várias compras associadas (histórico de reposições), via purchase_items.
+alter table articles drop column if exists purchase_id;
+-- v3b — o fornecedor deixa de se guardar no artigo: um artigo pode ser reposto por
+-- fornecedores diferentes ao longo do tempo (cada compra já indica o seu próprio
+-- fornecedor). O fornecedor de cada reposição fica visível no Histórico de compras.
+alter table articles drop column if exists fornecedor_id;
+-- v3c — o stock só entra no artigo quando a compra fica "Concluída" (ver
+-- recompute_article_purchase_aggregates e trg_purchases_estado_change, mais acima) —
+-- uma compra "Reservado" ou "Enviado" ainda não soma quantidade nem atualiza o preço.
+-- v3d — novo campo "preco_medio", a média (ponderada pela quantidade) do custo unitário
+-- de todas as compras concluídas do artigo — distinto do preco_unitario, que é sempre o
+-- valor da compra concluída mais recente. IVA de um artigo novo passa a nascer a 0%.
+alter table articles add column if not exists preco_medio numeric default 0;
+alter table articles alter column iva set default 0;
+-- v3e — novo campo "uso_interno": marca sozinho, a partir do Tipo, os artigos de material
+-- interno (etiquetas, cartões, sacos de envio, caixas, material promocional, cabides,
+-- manequins, etc.) — nunca à venda, só para controlar o stock desse material de apoio.
+alter table articles add column if not exists uso_interno boolean not null default false;
+-- v3f — Cor e Padrão passam a ser dois campos independentes (Padrão nasce sempre "Liso"
+-- por defeito) e ambas as listas passam a ser parametrizáveis nas Definições, tal como os
+-- Tipos de Artigo (ver article_cores e article_padroes, mais abaixo).
+alter table articles add column if not exists padrao text default 'Liso';
+update articles set padrao = 'Liso' where padrao is null;
+-- v3g — o Tipo "Etiquetas" (ou outro escolhido) passa a poder marcar-se como "eh_etiqueta":
+-- ao assinalar "Peça já etiquetada" num artigo vendável, dá-se baixa de 1 unidade a um
+-- artigo desse Tipo (ver etiqueta_consumos, mais abaixo).
+alter table article_tipos add column if not exists eh_etiqueta boolean not null default false;
+update article_tipos set eh_etiqueta = true where peca = 'Etiquetas' and grupo = 'Material Interno' and not eh_etiqueta;
+-- v3h — "N/A" passa a ser a Cor por defeito de um artigo novo — garante que existe na
+-- lista mesmo em instalações onde article_cores já tinha sido semeada antes desta versão.
+insert into article_cores (valor)
+select 'N/A' where not exists (select 1 from article_cores where valor = 'N/A');
 alter table articles add column if not exists foto_url text;
 alter table articles add column if not exists publicado boolean not null default false;
 alter table purchases add column if not exists fatura_url text;
@@ -507,28 +1608,64 @@ alter table clients enable row level security;
 alter table sales enable row level security;
 alter table content_items enable row level security;
 
+drop policy if exists "authenticated full access" on suppliers;
 create policy "authenticated full access" on suppliers
   for all using (auth.uid() is not null) with check (auth.uid() is not null);
+drop policy if exists "authenticated full access" on purchases;
 create policy "authenticated full access" on purchases
   for all using (auth.uid() is not null) with check (auth.uid() is not null);
+drop policy if exists "authenticated full access" on articles;
 create policy "authenticated full access" on articles
   for all using (auth.uid() is not null) with check (auth.uid() is not null);
+drop policy if exists "authenticated full access" on clients;
 create policy "authenticated full access" on clients
   for all using (auth.uid() is not null) with check (auth.uid() is not null);
+drop policy if exists "authenticated full access" on sales;
 create policy "authenticated full access" on sales
   for all using (auth.uid() is not null) with check (auth.uid() is not null);
+drop policy if exists "authenticated full access" on content_items;
 create policy "authenticated full access" on content_items
   for all using (auth.uid() is not null) with check (auth.uid() is not null);
 
 -- ============================================================
 -- TEMPO REAL — para a Rosa ver ao vivo o que a Rita insere (e vice-versa)
 -- ============================================================
-alter publication supabase_realtime add table suppliers;
-alter publication supabase_realtime add table purchases;
-alter publication supabase_realtime add table articles;
-alter publication supabase_realtime add table clients;
-alter publication supabase_realtime add table sales;
-alter publication supabase_realtime add table content_items;
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'suppliers') then
+    alter publication supabase_realtime add table suppliers;
+  end if;
+end $$;
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'purchases') then
+    alter publication supabase_realtime add table purchases;
+  end if;
+end $$;
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'articles') then
+    alter publication supabase_realtime add table articles;
+  end if;
+end $$;
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'clients') then
+    alter publication supabase_realtime add table clients;
+  end if;
+end $$;
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'sales') then
+    alter publication supabase_realtime add table sales;
+  end if;
+end $$;
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'content_items') then
+    alter publication supabase_realtime add table content_items;
+  end if;
+end $$;
 
 -- ============================================================
 -- 1) ELIMINAR REVERSÍVEL (soft delete)
@@ -555,6 +1692,7 @@ create table if not exists audit_log (
 );
 
 alter table audit_log enable row level security;
+drop policy if exists "authenticated read audit" on audit_log;
 create policy "authenticated read audit" on audit_log
   for select using (auth.uid() is not null);
 -- (não há policy de insert para utilizadores — só o trigger, via security definer, escreve aqui)
@@ -602,6 +1740,26 @@ drop trigger if exists trg_audit_message_templates on message_templates;
 create trigger trg_audit_message_templates after insert or update or delete on message_templates for each row execute function audit_trigger();
 drop trigger if exists trg_audit_exchanges on exchanges;
 create trigger trg_audit_exchanges after insert or update or delete on exchanges for each row execute function audit_trigger();
+drop trigger if exists trg_audit_purchase_items on purchase_items;
+create trigger trg_audit_purchase_items after insert or update or delete on purchase_items for each row execute function audit_trigger();
+drop trigger if exists trg_audit_encomendas on encomendas;
+create trigger trg_audit_encomendas after insert or update or delete on encomendas for each row execute function audit_trigger();
+drop trigger if exists trg_audit_embalagens on embalagens;
+create trigger trg_audit_embalagens after insert or update or delete on embalagens for each row execute function audit_trigger();
+drop trigger if exists trg_audit_embalagem_itens on embalagem_itens;
+create trigger trg_audit_embalagem_itens after insert or update or delete on embalagem_itens for each row execute function audit_trigger();
+drop trigger if exists trg_audit_embalagem_consumos on embalagem_consumos;
+create trigger trg_audit_embalagem_consumos after insert or update or delete on embalagem_consumos for each row execute function audit_trigger();
+drop trigger if exists trg_audit_consumos_manuais on consumos_manuais;
+create trigger trg_audit_consumos_manuais after insert or update or delete on consumos_manuais for each row execute function audit_trigger();
+drop trigger if exists trg_audit_transformacoes on transformacoes;
+create trigger trg_audit_transformacoes after insert or update or delete on transformacoes for each row execute function audit_trigger();
+drop trigger if exists trg_audit_transformacao_itens on transformacao_itens;
+create trigger trg_audit_transformacao_itens after insert or update or delete on transformacao_itens for each row execute function audit_trigger();
+drop trigger if exists trg_audit_transformacao_execucoes on transformacao_execucoes;
+create trigger trg_audit_transformacao_execucoes after insert or update or delete on transformacao_execucoes for each row execute function audit_trigger();
+drop trigger if exists trg_audit_transformacao_execucao_itens on transformacao_execucao_itens;
+create trigger trg_audit_transformacao_execucao_itens after insert or update or delete on transformacao_execucao_itens for each row execute function audit_trigger();
 
 -- ============================================================
 -- 3a) SKU sem conflitos — gerado pela base de dados, de forma
@@ -613,6 +1771,7 @@ create table if not exists sku_counters (
 );
 
 alter table sku_counters enable row level security;
+drop policy if exists "authenticated full access" on sku_counters;
 create policy "authenticated full access" on sku_counters
   for all using (auth.uid() is not null) with check (auth.uid() is not null);
 

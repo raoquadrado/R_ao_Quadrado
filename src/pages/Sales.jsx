@@ -1,13 +1,14 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Fragment } from "react";
 import { supabase } from "../supabaseClient";
 import { deleteRow, updateRow } from "../lib/useRealtimeTable";
 import { getTestMode } from "../lib/testMode";
 import { uploadDocument, deleteDocument } from "../lib/fileStorage";
-import { OWNERS, PAYMENT_METHODS, PAYMENT_METHOD_LABELS, PAYMENT_STATUS, SHIPPING_STATUS, SHIPPING_METHODS, CLIENT_STATUS_COLORS } from "../lib/constants";
+import { OWNERS, PAYMENT_METHODS, PAYMENT_METHOD_LABELS, PAYMENT_STATUS, CLIENT_STATUS_COLORS, tipoUsoInterno } from "../lib/constants";
 import { money, fmtDate, todayISO, uid, sugerirCodigoPorData, dadosEmpresa } from "../lib/computations";
 import { useToast, useConfirm } from "../lib/overlays";
 import { Field, Button, Badge, ModalShell, ModalActions, SearchBox, TabHeader, RowActions, EmptyRow, inputCls, useColumnFilters, FilterTh } from "../components/ui";
 import MessageComposer from "../components/MessageComposer";
+import { EncomendaModal } from "./Encomendas";
 
 const empty = (articles, clients, presetArticleId, presetClientId, loggedInOwner) => {
   const preset = presetArticleId ? articles.find((a) => a.id === presetArticleId) : null;
@@ -33,10 +34,12 @@ const shippingColor = (estado) => {
   return { color: "#8A8677", bg: "#F1EDE3" }; // "Não Definido"
 };
 
-export default function Sales({ sales, articles, clients, clientsComputed, articleName, clientName, articlesComputed, messageTemplates, autoOpenNew, onConsumedAutoOpen, presetArticleId, onConsumedPresetArticle, presetClientId, onConsumedPresetClient, autoOpenEditId, onConsumedAutoOpenEdit, onRequestExchange, returnToLiveId, liveName, onReturnToLive, loggedInOwner, onOpenArticle, liveRegistos, settings }) {
+export default function Sales({ sales, encomendas, embalagens, embalagemItens, articles, clients, clientsComputed, articleName, clientName, articlesComputed, tipos, messageTemplates, autoOpenNew, onConsumedAutoOpen, presetArticleId, onConsumedPresetArticle, presetClientId, onConsumedPresetClient, autoOpenEditId, onConsumedAutoOpenEdit, onRequestExchange, returnToLiveId, liveName, onReturnToLive, loggedInOwner, onOpenArticle, onOpenEncomendaDetail, presetEditEncomendaId, onConsumedPresetEditEncomenda, liveRegistos, settings }) {
   const [q, setQ] = useState("");
   const [modal, setModal] = useState(null);
   const [messageFor, setMessageFor] = useState(null); // venda selecionada para enviar mensagem
+  const [selecionadas, setSelecionadas] = useState(new Set()); // vendas soltas marcadas para gerar encomenda
+  const [encomendaModal, setEncomendaModal] = useState(null); // { initialSaleIds, fixedClientId } — a gerar encomenda nova
   const notify = useToast();
   const confirm = useConfirm();
 
@@ -56,6 +59,14 @@ export default function Sales({ sales, articles, clients, clientsComputed, artic
       onConsumedAutoOpenEdit?.();
     }
   }, [autoOpenEditId, sales]);
+
+  useEffect(() => {
+    if (presetEditEncomendaId) {
+      const e = encomendas.find((x) => x.id === presetEditEncomendaId);
+      if (e) setEncomendaModal({ encomenda: e });
+      onConsumedPresetEditEncomenda?.();
+    }
+  }, [presetEditEncomendaId, encomendas]);
 
   const rows = sales.filter((s) => (articleName(s.article_id) + clientName(s.client_id)).toLowerCase().includes(q.toLowerCase()));
   const total = rows.reduce((s, x) => s + Number(x.valor_venda || 0), 0);
@@ -96,6 +107,40 @@ export default function Sales({ sales, articles, clients, clientsComputed, artic
     notify(registo ? "Venda eliminada — o registo do direto voltou a ficar pendente." : "Venda eliminada.");
   }
 
+  async function handleGerarEncomenda() {
+    const vendas = sales.filter((s) => selecionadas.has(s.id));
+    if (vendas.length === 0) return;
+    const clienteIds = new Set(vendas.map((s) => s.client_id));
+    if (clienteIds.size > 1) {
+      notify("Todas as vendas selecionadas têm de ser do mesmo cliente.", "error");
+      return;
+    }
+    setEncomendaModal({ initialSaleIds: [...selecionadas], fixedClientId: vendas[0].client_id });
+  }
+
+  function handleGerarEncomendaParaVenda(sale) {
+    setModal(null);
+    setEncomendaModal({ initialSaleIds: [sale.id], fixedClientId: sale.client_id });
+  }
+
+  function handleVerEncomendaDaVenda(encomendaId) {
+    setModal(null);
+    setEncomendaModal({ encomenda: encomendas.find((e) => e.id === encomendaId) });
+  }
+
+  async function handleDeleteEncomenda(encomenda) {
+    const vendas = sales.filter((s) => s.encomenda_id === encomenda.id);
+    const ok = await confirm({
+      title: "Eliminar encomenda?",
+      message: `As ${vendas.length} venda(s) que contém voltam a ficar soltas, com o Estado de envio "Não Definido". O material de embalagem consumido é devolvido ao stock. As vendas em si não são apagadas.`,
+      confirmLabel: "Eliminar",
+    });
+    if (!ok) return;
+    const { error } = await supabase.rpc("delete_encomenda", { p_id: encomenda.id });
+    if (error) { notify("Não foi possível eliminar a encomenda: " + error.message, "error"); return; }
+    notify("Encomenda eliminada — as vendas voltaram a ficar soltas.");
+  }
+
   return (
     <div>
       {returnToLiveId && (
@@ -120,58 +165,168 @@ export default function Sales({ sales, articles, clients, clientsComputed, artic
       </label>
       {articles.length === 0 && <p className="text-clay-dark text-xs -mt-2 mb-3">Cria primeiro um artigo no catálogo.</p>}
       <SearchBox value={q} onChange={setQ} placeholder="Procurar por artigo ou cliente…" />
+      {selecionadas.size > 0 && (
+        <div className="flex items-center justify-between gap-2 bg-purple-50 border border-purple-200 rounded-md px-3 py-2 mb-3">
+          <span className="text-xs text-purple-700 font-medium">{selecionadas.size} venda(s) selecionada(s)</span>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setSelecionadas(new Set())} className="text-xs text-stone underline">limpar seleção</button>
+            <Button variant="primary" onClick={handleGerarEncomenda}>📦 Gerar encomenda e embalamento</Button>
+          </div>
+        </div>
+      )}
       <div className="bg-white border border-line rounded-xl overflow-auto">
         <table>
           <thead>
             <tr>
-              <th>Código</th><th>Data</th><th>Artigo</th><th>Cliente</th><th>Qtd</th><th>Valor</th><FilterTh label="Vendeu" {...filterProps("vendeu")} />
+              <th></th><th>Código</th><th>Data</th><th>Artigo</th><th>Cliente</th><th>Qtd</th><th>Valor</th><FilterTh label="Vendeu" {...filterProps("vendeu")} />
               <FilterTh label="Pagamento" {...filterProps("pagamento")} /><FilterTh label="Envio" {...filterProps("envio")} />
               <FilterTh label="Método" {...filterProps("metodo")} /><th>Cód. envio</th><th>Fatura</th><th>Notas</th><th></th><th></th><th></th>
             </tr>
           </thead>
           <tbody>
-            {filteredRows.length === 0 && <EmptyRow span={16} text="Sem vendas registadas." />}
-            {filteredRows.map((s) => {
-              const pc = paymentColor(s.estado);
-              const sc = shippingColor(s.estado_envio);
-              return (
-                <tr key={s.id}>
-                  <td className="font-mono text-xs text-stone">{s.codigo || "—"}</td>
-                  <td className="font-mono text-xs text-stone">{fmtDate(s.data)}</td>
-                  <td className="font-medium">
-                    {onOpenArticle ? (
-                      <button type="button" onClick={() => onOpenArticle(s.article_id)} className="text-ink underline decoration-line hover:decoration-rust text-left">
-                        {articleName(s.article_id)}
-                      </button>
-                    ) : articleName(s.article_id)}
-                  </td>
-                  <td className="text-stone">{clientName(s.client_id)}</td>
-                  <td className="font-mono">{s.quantidade}</td>
-                  <td className="font-mono font-medium text-rust-dark">{money(s.valor_venda)}</td>
-                  <td>{s.quem_vendeu ? <Badge text={s.quem_vendeu} color={s.quem_vendeu === "Rosa" ? "#832F72" : "#A67C1E"} bg={s.quem_vendeu === "Rosa" ? "#F7E3F2" : "#F5EADD"} /> : <span className="text-stone">—</span>}</td>
-                  <td><Badge text={s.estado} color={pc.color} bg={pc.bg} /></td>
-                  <td><Badge text={s.estado_envio || "Não Definido"} color={sc.color} bg={sc.bg} /></td>
-                  <td className="text-stone text-xs">{s.metodo_envio || "—"}</td>
-                  <td className="font-mono text-xs text-stone">{s.codigo_envio || "—"}</td>
-                  <td className={`text-xs ${s.fatura ? "text-stone" : "text-clay-dark italic"}`}>
-                    {s.fatura || "por emitir"}
-                    {(s.fatura_url || s.comprovativo_url) && <span className="ml-1.5" title="Tem anexo(s)">📎</span>}
-                  </td>
-                  <td className="text-stone max-w-[160px]" title={s.notas}>{s.notas || "—"}</td>
-                  <td>
-                    <button onClick={() => setMessageFor(s)} title="Enviar mensagem ao cliente" className="text-purple-600">✉️</button>
-                  </td>
-                  <td>
-                    {s.estado === "Pago" ? (
-                      <button onClick={() => onRequestExchange?.(s.id)} title="Pedir troca" className="text-rust-dark">🔁</button>
-                    ) : (
-                      <span title="Só é possível pedir troca de vendas já pagas" className="text-line">🔁</span>
-                    )}
-                  </td>
-                  <RowActions onEdit={() => setModal({ data: { ...s }, isNew: false })} onDelete={() => handleDelete(s)} />
-                </tr>
-              );
-            })}
+            {filteredRows.length === 0 && <EmptyRow span={17} text="Sem vendas registadas." />}
+            {(() => {
+              // Agrupa visualmente vendas da mesma Encomenda (uma linha de cabeçalho, com as
+              // vendas incluídas logo a seguir) — vendas soltas continuam cada uma na sua linha.
+              const vistas = new Set();
+              const grupos = [];
+              filteredRows.forEach((s) => {
+                if (s.encomenda_id) {
+                  if (vistas.has(s.encomenda_id)) return;
+                  vistas.add(s.encomenda_id);
+                  grupos.push({ tipo: "encomenda", encomendaId: s.encomenda_id, vendas: filteredRows.filter((x) => x.encomenda_id === s.encomenda_id) });
+                } else {
+                  grupos.push({ tipo: "solta", venda: s });
+                }
+              });
+              return grupos.map((g) => {
+                if (g.tipo === "solta") {
+                  const s = g.venda;
+                  const pc = paymentColor(s.estado);
+                  const sc = shippingColor(s.estado_envio);
+                  return (
+                    <tr key={s.id}>
+                      <td>
+                        <input type="checkbox" checked={selecionadas.has(s.id)} onChange={(e) => {
+                          setSelecionadas((prev) => {
+                            const next = new Set(prev);
+                            if (e.target.checked) next.add(s.id); else next.delete(s.id);
+                            return next;
+                          });
+                        }} className="w-3.5 h-3.5" />
+                      </td>
+                      <td className="font-mono text-xs text-stone">{s.codigo || "—"}</td>
+                      <td className="font-mono text-xs text-stone">{fmtDate(s.data)}</td>
+                      <td className="font-medium">
+                        {onOpenArticle ? (
+                          <button type="button" onClick={() => onOpenArticle(s.article_id)} className="text-ink underline decoration-line hover:decoration-rust text-left">
+                            {articleName(s.article_id)}
+                          </button>
+                        ) : articleName(s.article_id)}
+                      </td>
+                      <td className="text-stone">{clientName(s.client_id)}</td>
+                      <td className="font-mono">{s.quantidade}</td>
+                      <td className="font-mono font-medium text-rust-dark">{money(s.valor_venda)}</td>
+                      <td>{s.quem_vendeu ? <Badge text={s.quem_vendeu} color={s.quem_vendeu === "Rosa" ? "#832F72" : "#A67C1E"} bg={s.quem_vendeu === "Rosa" ? "#F7E3F2" : "#F5EADD"} /> : <span className="text-stone">—</span>}</td>
+                      <td><Badge text={s.estado} color={pc.color} bg={pc.bg} /></td>
+                      <td><Badge text={s.estado_envio || "Não Definido"} color={sc.color} bg={sc.bg} /></td>
+                      <td className="text-stone text-xs">{s.metodo_envio || "—"}</td>
+                      <td className="font-mono text-xs text-stone">{s.codigo_envio || "—"}</td>
+                      <td className={`text-xs ${s.fatura ? "text-stone" : "text-clay-dark italic"}`}>
+                        {s.fatura || "por emitir"}
+                        {(s.fatura_url || s.comprovativo_url) && <span className="ml-1.5" title="Tem anexo(s)">📎</span>}
+                      </td>
+                      <td className="text-stone max-w-[160px]" title={s.notas}>{s.notas || "—"}</td>
+                      <td>
+                        <button onClick={() => setMessageFor(s)} title="Enviar mensagem ao cliente" className="text-purple-600">✉️</button>
+                      </td>
+                      <td>
+                        {s.estado === "Pago" ? (
+                          <button onClick={() => onRequestExchange?.(s.id)} title="Pedir troca" className="text-rust-dark">🔁</button>
+                        ) : (
+                          <span title="Só é possível pedir troca de vendas já pagas" className="text-line">🔁</span>
+                        )}
+                      </td>
+                      <RowActions onEdit={() => setModal({ data: { ...s }, isNew: false })} onDelete={() => handleDelete(s)} />
+                    </tr>
+                  );
+                }
+                const e = encomendas.find((x) => x.id === g.encomendaId);
+                const vendas = g.vendas;
+                const totalGrupo = vendas.reduce((sum, v) => sum + Number(v.valor_venda || 0), 0);
+                const sc = shippingColor(e?.estado_envio);
+                return (
+                  <Fragment key={`enc-${g.encomendaId}`}>
+                    <tr className="bg-purple-50/70">
+                      <td className="text-base leading-none">📦</td>
+                      <td className="font-mono text-xs text-purple-700 font-medium">
+                        {onOpenEncomendaDetail ? (
+                          <button type="button" onClick={() => onOpenEncomendaDetail(g.encomendaId)} className="underline decoration-purple-300 hover:decoration-purple-600">
+                            {e?.codigo || "—"}
+                          </button>
+                        ) : (e?.codigo || "—")}
+                      </td>
+                      <td className="text-stone text-xs">{e?.data_envio ? fmtDate(e.data_envio) : "—"}</td>
+                      <td className="font-medium text-purple-700 text-xs" colSpan={2}>{vendas.length} venda(s) desta encomenda · {clientName(e?.client_id)}</td>
+                      <td></td>
+                      <td className="font-mono font-medium text-rust-dark">{money(totalGrupo)}</td>
+                      <td></td>
+                      <td></td>
+                      <td><Badge text={e?.estado_envio || "Não Definido"} color={sc.color} bg={sc.bg} /></td>
+                      <td className="text-stone text-xs">{e?.metodo_envio || "—"}</td>
+                      <td className="font-mono text-xs text-stone">{e?.codigo_envio || "—"}</td>
+                      <td className="text-xs">
+                        {e?.fatura_rosa && <span title={`Fatura Rosa: ${e.fatura_rosa}`} className="mr-1.5">🧾 Rosa</span>}
+                        {e?.fatura_rita && <span title={`Fatura Rita: ${e.fatura_rita}`}>🧾 Rita</span>}
+                        {!e?.fatura_rosa && !e?.fatura_rita && <span className="text-clay-dark italic">por emitir</span>}
+                      </td>
+                      <td className="text-stone max-w-[160px]" title={e?.notas}>{e?.notas || "—"}</td>
+                      <td></td>
+                      <td></td>
+                      <td className="flex gap-2">
+                        <button type="button" onClick={() => setEncomendaModal({ encomenda: e })} title="Editar encomenda" className="text-purple-600">✎</button>
+                        <button type="button" onClick={() => handleDeleteEncomenda(e)} title="Eliminar encomenda" className="text-clay-dark">🗑</button>
+                      </td>
+                    </tr>
+                    {vendas.map((s) => {
+                      const pc = paymentColor(s.estado);
+                      return (
+                        <tr key={s.id} className="bg-purple-50/20">
+                          <td></td>
+                          <td className="font-mono text-xs text-stone pl-4">↳ {s.codigo || "—"}</td>
+                          <td className="font-mono text-xs text-stone">{fmtDate(s.data)}</td>
+                          <td className="font-medium">
+                            {onOpenArticle ? (
+                              <button type="button" onClick={() => onOpenArticle(s.article_id)} className="text-ink underline decoration-line hover:decoration-rust text-left">
+                                {articleName(s.article_id)}
+                              </button>
+                            ) : articleName(s.article_id)}
+                          </td>
+                          <td></td>
+                          <td className="font-mono">{s.quantidade}</td>
+                          <td className="font-mono font-medium text-rust-dark">{money(s.valor_venda)}</td>
+                          <td>{s.quem_vendeu ? <Badge text={s.quem_vendeu} color={s.quem_vendeu === "Rosa" ? "#832F72" : "#A67C1E"} bg={s.quem_vendeu === "Rosa" ? "#F7E3F2" : "#F5EADD"} /> : <span className="text-stone">—</span>}</td>
+                          <td><Badge text={s.estado} color={pc.color} bg={pc.bg} /></td>
+                          <td className="text-stone text-xs italic" colSpan={4}>— envio e fatura na encomenda acima —</td>
+                          <td className="text-stone max-w-[160px]" title={s.notas}>{s.notas || "—"}</td>
+                          <td>
+                            <button onClick={() => setMessageFor(s)} title="Enviar mensagem ao cliente" className="text-purple-600">✉️</button>
+                          </td>
+                          <td>
+                            {s.estado === "Pago" ? (
+                              <button onClick={() => onRequestExchange?.(s.id)} title="Pedir troca" className="text-rust-dark">🔁</button>
+                            ) : (
+                              <span title="Só é possível pedir troca de vendas já pagas" className="text-line">🔁</span>
+                            )}
+                          </td>
+                          <RowActions onEdit={() => setModal({ data: { ...s }, isNew: false })} onDelete={() => handleDelete(s)} />
+                        </tr>
+                      );
+                    })}
+                  </Fragment>
+                );
+              });
+            })()}
           </tbody>
         </table>
       </div>
@@ -185,10 +340,13 @@ export default function Sales({ sales, articles, clients, clientsComputed, artic
           clientsComputed={clientsComputed}
           sales={sales}
           articlesComputed={articlesComputed}
+          tipos={tipos}
           messageTemplates={messageTemplates}
           articleName={articleName}
           clientName={clientName}
           settings={settings}
+          onOpenEncomenda={handleVerEncomendaDaVenda}
+          onGerarEncomenda={handleGerarEncomendaParaVenda}
           onClose={() => setModal(null)}
           onSave={async (values) => {
             const { error } = await supabase.rpc("save_sale", {
@@ -223,6 +381,29 @@ export default function Sales({ sales, articles, clients, clientsComputed, artic
         />
       )}
 
+      {encomendaModal && (
+        <EncomendaModal
+          encomenda={encomendaModal.encomenda}
+          initialSaleIds={encomendaModal.initialSaleIds}
+          fixedClientId={encomendaModal.fixedClientId}
+          sales={sales}
+          clients={clients}
+          encomendas={encomendas}
+          embalagens={embalagens}
+          embalagemItens={embalagemItens}
+          articlesComputed={articlesComputed}
+          clientName={clientName}
+          articleName={articleName}
+          onOpenSale={(saleId) => { setEncomendaModal(null); setModal({ data: { ...sales.find((s) => s.id === saleId) }, isNew: false }); }}
+          onClose={() => setEncomendaModal(null)}
+          onSaved={() => {
+            notify(encomendaModal.encomenda ? "Encomenda atualizada." : "Encomenda gerada — os dados de envio e fatura ficam já a preencher.");
+            setSelecionadas(new Set());
+            setEncomendaModal(null);
+          }}
+        />
+      )}
+
       {messageFor && (
         <MessageComposer
           templates={messageTemplates}
@@ -248,7 +429,7 @@ export default function Sales({ sales, articles, clients, clientsComputed, artic
 function draftKey(id) { return `rr_draft_sale_${id}`; }
 function clearDraft(id) { try { localStorage.removeItem(draftKey(id)); } catch {} }
 
-function SaleModal({ data, isNew, articles, clients, clientsComputed, sales, articlesComputed, messageTemplates, articleName, clientName, settings, onClose, onSave }) {
+function SaleModal({ data, isNew, articles, clients, clientsComputed, sales, articlesComputed, tipos, messageTemplates, articleName, clientName, settings, onOpenEncomenda, onGerarEncomenda, onClose, onSave }) {
   const [f, setF] = useState(() => {
     try {
       const saved = localStorage.getItem(draftKey(data.id));
@@ -366,7 +547,7 @@ function SaleModal({ data, isNew, articles, clients, clientsComputed, sales, art
             value={f.article_id}
             onChange={(e) => { const a = articles.find((x) => x.id === e.target.value); setF({ ...f, article_id: e.target.value, valor_venda: a?.valor_venda || 0 }); }}
           >
-            {articles.map((a) => <option key={a.id} value={a.id}>{displaySku(a) ? `${displaySku(a)} — ${a.artigo}` : a.artigo}</option>)}
+            {articles.filter((a) => !tipoUsoInterno(a.tipo, tipos) || a.id === f.article_id).map((a) => <option key={a.id} value={a.id}>{displaySku(a) ? `${displaySku(a)} — ${a.artigo}` : a.artigo}</option>)}
           </select>
           {selected && <p className="text-stone text-[11px] mt-1 font-mono">SKU: {displaySku(selected) || "sem SKU"}</p>}
         </Field>
@@ -403,31 +584,28 @@ function SaleModal({ data, isNew, articles, clients, clientsComputed, sales, art
       </div>
 
       <SectionTitle n={3} title="Encomenda" />
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
-        <Field label="Estado do envio">
-          <select className={inputCls} value={f.estado_envio} onChange={set("estado_envio")}>{SHIPPING_STATUS.map((o) => <option key={o}>{o}</option>)}</select>
-        </Field>
-        <Field label="Método de envio">
-          <select className={inputCls} value={f.metodo_envio} onChange={set("metodo_envio")}>
-            <option value="">— por definir —</option>
-            {SHIPPING_METHODS.map((o) => <option key={o}>{o}</option>)}
-          </select>
-        </Field>
-        <Field label="Código de envio"><input className={inputCls} value={f.codigo_envio || ""} onChange={set("codigo_envio")} placeholder="ex: RR123456789PT" /></Field>
-      </div>
       <div className="mb-5">
-        <Field label="Data do envio"><input type="date" className={inputCls} value={f.data_envio || ""} onChange={set("data_envio")} /></Field>
-      </div>
-
-      <SectionTitle n={4} title="Parte fiscal" />
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-        <Field label="Nº de fatura"><input className={inputCls} value={f.fatura} onChange={set("fatura")} placeholder="por emitir" /></Field>
-        <Field label="Anexar fatura de venda">
-          <input type="file" accept="application/pdf,image/*" onChange={handleUpload("fatura_url", "fatura")} disabled={uploadingField === "fatura_url"} className={`${inputCls} py-1.5`} />
-        </Field>
-      </div>
-      <div className="mb-5">
-        <AttachmentStatus label="Fatura de venda" url={f.fatura_url} uploading={uploadingField === "fatura_url"} onRemove={() => handleRemove("fatura_url")} />
+        {f.encomenda_id ? (
+          <div className="bg-purple-50 border border-purple-200 rounded-md px-3 py-2.5">
+            <p className="text-xs text-purple-700 mb-1.5">
+              📦 Esta venda faz parte de uma encomenda — o Estado de envio, Método, Código de rastreio e Fatura vivem lá, partilhados com as outras vendas da mesma encomenda.
+            </p>
+            <button type="button" onClick={() => onOpenEncomenda?.(f.encomenda_id)} className="text-xs font-medium text-purple-700 underline">
+              Ver encomenda {f.codigo_envio ? `(rastreio: ${f.codigo_envio})` : ""}
+            </button>
+          </div>
+        ) : (
+          <div className="bg-paper border border-line rounded-md px-3 py-2.5">
+            <p className="text-xs text-stone mb-1.5">
+              📦 Esta venda ainda não tem encomenda — o Estado de envio, Método, Código de rastreio e Fatura definem-se ao gerar uma (podes juntar só esta venda, ou mais do mesmo cliente).
+            </p>
+            {!isNew && onGerarEncomenda && (
+              <button type="button" onClick={() => onGerarEncomenda(f)} className="text-xs font-medium text-purple-600 underline">
+                + Gerar encomenda para esta venda
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="mb-5">

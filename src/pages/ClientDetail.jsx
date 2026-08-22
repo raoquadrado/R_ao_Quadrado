@@ -97,7 +97,7 @@ export default function ClientDetail({
 
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
-        <Card label="Nº de encomendas" value={c.nCompras} color="#1C2541" />
+        <Card label="Nº de compras" value={c.nCompras} color="#1C2541" />
         <Card label="Total gasto" value={money(c.totalGasto)} color="#254238" />
         <Card label="Ticket médio" value={money(ticketMedio)} color="#1C2541" />
         <Card label="Pontos" value={c.pontos} color={c.pontos < 0 ? "#7A2A24" : "#254238"} />
@@ -106,7 +106,7 @@ export default function ClientDetail({
         <Card label="Última compra" value={c.dataUltimaCompra ? fmtDate(c.dataUltimaCompra) : "—"} color="#1C2541" />
         <Card label="Artigo favorito" value={tipoFavorito || "—"} color="#832F72" />
         <Card label="Comprou em diretos" value={`${comprasDiretos} vez${comprasDiretos === 1 ? "" : "es"}`} color="#832F72" />
-        <Card label="Encomendas pendentes" value={c.nReservasPendentes || 0} color={c.nReservasPendentes > 0 ? "#A67C1E" : "#1C2541"} />
+        <Card label="Reservas por pagar" value={c.nReservasPendentes || 0} color={c.nReservasPendentes > 0 ? "#A67C1E" : "#1C2541"} />
       </div>
 
       {/* Compras por rede social (via diretos) */}

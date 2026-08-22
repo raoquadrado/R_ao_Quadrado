@@ -12,6 +12,12 @@ const TABLES = [
   { key: "purchases", label: "Compras", nameField: "fatura" },
   { key: "clients", label: "Clientes", nameField: "nome" },
   { key: "sales", label: "Vendas", nameField: "id" },
+  { key: "encomendas", label: "Encomendas", nameField: "codigo" },
+  { key: "embalagens", label: "Embalagens", nameField: "nome" },
+  { key: "transformacoes", label: "Transformações", nameField: "nome" },
+  { key: "exchanges", label: "Trocas", nameField: "id" },
+  { key: "lives", label: "Diretos", nameField: "nome" },
+  { key: "message_templates", label: "Modelos de mensagem", nameField: "nome" },
   { key: "content_items", label: "Conteúdo", nameField: "id" },
 ];
 
@@ -36,6 +42,7 @@ export default function Trash() {
     if (!ok) return;
     if (tableKey === "articles" && r.foto_url) await deleteArticlePhoto(r.foto_url);
     if (tableKey === "purchases" && r.fatura_url) await deleteDocument(r.fatura_url);
+    if (tableKey === "encomendas" && r.fatura_url) await deleteDocument(r.fatura_url);
     if (tableKey === "sales") {
       if (r.fatura_url) await deleteDocument(r.fatura_url);
       if (r.comprovativo_url) await deleteDocument(r.comprovativo_url);

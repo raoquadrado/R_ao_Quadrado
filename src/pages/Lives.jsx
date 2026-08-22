@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { insertRow, updateRow, deleteRow } from "../lib/useRealtimeTable";
-import { CONTENT_NETWORKS, CONTENT_NETWORK_COLORS, LIVE_ESTADO_COLORS } from "../lib/constants";
+import { CONTENT_NETWORKS, CONTENT_NETWORK_COLORS, LIVE_ESTADO_COLORS, tipoUsoInterno } from "../lib/constants";
 import { money, fmtDate, todayISO, uid, displaySku, sugerirCodigoPorData } from "../lib/computations";
 import { useToast, useConfirm } from "../lib/overlays";
 import { Field, Button, Badge, ModalShell, ModalActions, SearchBox, TabHeader, RowActions, EmptyRow, inputCls, useColumnFilters, FilterTh } from "../components/ui";
@@ -10,7 +10,7 @@ const empty = (presetDate) => ({
   redes_sociais: [], itens: [], estado: "Preparação", posicao_atual: 0,
 });
 
-export default function Lives({ lives, liveRegistos, articlesComputed, autoOpenNew, onConsumedAutoOpen, autoOpenEditId, onConsumedAutoOpenEdit, presetDate, onConsumedPresetDate, onOpenLive, onOpenAllWaitlist }) {
+export default function Lives({ lives, liveRegistos, articlesComputed, tipos, autoOpenNew, onConsumedAutoOpen, autoOpenEditId, onConsumedAutoOpenEdit, presetDate, onConsumedPresetDate, onOpenLive, onOpenAllWaitlist }) {
   const [q, setQ] = useState("");
   const [modal, setModal] = useState(null);
   const notify = useToast();
@@ -115,6 +115,7 @@ export default function Lives({ lives, liveRegistos, articlesComputed, autoOpenN
           data={modal.data}
           isNew={modal.isNew}
           articlesComputed={articlesComputed}
+          tipos={tipos}
           lives={lives}
           onClose={() => setModal(null)}
           onSave={async (values) => {
@@ -129,7 +130,7 @@ export default function Lives({ lives, liveRegistos, articlesComputed, autoOpenN
   );
 }
 
-function LiveModal({ data, isNew, articlesComputed, lives, onClose, onSave }) {
+function LiveModal({ data, isNew, articlesComputed, tipos, lives, onClose, onSave }) {
   const [f, setF] = useState({ ...data, itens: data.itens || [], redes_sociais: data.redes_sociais || [], codigo: data.codigo || (isNew ? sugerirCodigoPorData("LIVE", data.data, lives, "codigo", data.id) : "") });
   const [builderIds, setBuilderIds] = useState([]);
   const [builderNome, setBuilderNome] = useState("");
@@ -137,7 +138,7 @@ function LiveModal({ data, isNew, articlesComputed, lives, onClose, onSave }) {
   const [error, setError] = useState("");
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
 
-  const disponiveis = articlesComputed.filter((a) => a.stockAtual > 0);
+  const disponiveis = articlesComputed.filter((a) => a.stockAtual > 0 && !tipoUsoInterno(a.tipo, tipos));
   const filtrados = builderBusca.trim()
     ? disponiveis.filter((a) => (a.sku || "").toLowerCase().includes(builderBusca.trim().toLowerCase()) || a.artigo.toLowerCase().includes(builderBusca.trim().toLowerCase()))
     : disponiveis;

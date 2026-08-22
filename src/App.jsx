@@ -19,7 +19,9 @@ import Articles from "./pages/Articles";
 import Purchases from "./pages/Purchases";
 import Clients from "./pages/Clients";
 import Sales from "./pages/Sales";
+import { EncomendaDetail } from "./pages/Encomendas";
 import Content from "./pages/Content";
+import Watermark from "./pages/Watermark";
 import Calendar from "./pages/Calendar";
 import Tasks from "./pages/Tasks";
 import PriceSuggestions from "./pages/PriceSuggestions";
@@ -54,6 +56,8 @@ function AppInner() {
   const [calendarInitialDate, setCalendarInitialDate] = useState(null); // mês a abrir no Calendário, vindo da data do Painel
   const [presetLiveDate, setPresetLiveDate] = useState(null); // data pré-preenchida ao criar um direto a partir do Calendário
   const [articleDetailId, setArticleDetailId] = useState(null); // ficha completa do artigo aberta
+  const [encomendaDetailId, setEncomendaDetailId] = useState(null); // ficha completa da encomenda aberta
+  const [presetEditEncomendaId, setPresetEditEncomendaId] = useState(null); // abrir o formulário de edição ao voltar a Vendas
   const [clientDetailId, setClientDetailId] = useState(null); // ficha completa do cliente aberta
   const [liveDetailId, setLiveDetailId] = useState(null); // direto aberto (detalhe)
   const [showAllWaitlist, setShowAllWaitlist] = useState(false); // lista de espera agregada de todos os diretos
@@ -61,6 +65,7 @@ function AppInner() {
   const [quickNewSize, setQuickNewSize] = useState(null); // id do artigo a partir do qual criar um novo tamanho, vindo da ficha completa
   const [saleReturnLiveId, setSaleReturnLiveId] = useState(null); // id do direto de onde se veio, para poder voltar a partir das Vendas
   const [presetSaleArticleId, setPresetSaleArticleId] = useState(null); // pré-preencher venda a partir da ficha
+  const [presetPurchaseArticleId, setPresetPurchaseArticleId] = useState(null); // pré-preencher compra (1º item) a partir da ficha de um artigo
   const [presetSaleClientId, setPresetSaleClientId] = useState(null); // pré-preencher venda a partir da ficha do cliente
   const [presetExchangeSaleId, setPresetExchangeSaleId] = useState(null); // pré-preencher troca a partir de uma venda
   const [presetContentArticleId, setPresetContentArticleId] = useState(null); // pré-preencher conteúdo a partir da ficha
@@ -104,8 +109,18 @@ function AppInner() {
   const { rows: suppliers } = useRealtimeTable("suppliers");
   const { rows: articles } = useRealtimeTable("articles");
   const { rows: purchases } = useRealtimeTable("purchases");
+  const { rows: purchaseItems } = useRealtimeTable("purchase_items");
   const { rows: clients } = useRealtimeTable("clients");
   const { rows: sales } = useRealtimeTable("sales");
+  const { rows: encomendas } = useRealtimeTable("encomendas");
+  const { rows: embalagens } = useRealtimeTable("embalagens");
+  const { rows: embalagemItens } = useRealtimeTable("embalagem_itens");
+  const { rows: embalagemConsumos } = useRealtimeTable("embalagem_consumos");
+  const { rows: consumosManuais } = useRealtimeTable("consumos_manuais");
+  const { rows: transformacoes } = useRealtimeTable("transformacoes");
+  const { rows: transformacaoItens } = useRealtimeTable("transformacao_itens");
+  const { rows: transformacaoExecucoes } = useRealtimeTable("transformacao_execucoes");
+  const { rows: transformacaoExecucaoItens } = useRealtimeTable("transformacao_execucao_itens");
   const { rows: contentItems } = useRealtimeTable("content_items");
   const { rows: lives } = useRealtimeTable("lives");
   const { rows: liveRegistos } = useRealtimeTable("live_registos");
@@ -113,10 +128,14 @@ function AppInner() {
   const { rows: exchanges } = useRealtimeTable("exchanges");
   const { rows: tasks } = useRealtimeTable("tasks");
   const { rows: marketingDates } = useRealtimeTable("marketing_dates");
+  const { rows: tipos } = useRealtimeTable("article_tipos");
+  const { rows: cores } = useRealtimeTable("article_cores");
+  const { rows: padroes } = useRealtimeTable("article_padroes");
+  const { rows: etiquetaConsumos } = useRealtimeTable("etiqueta_consumos");
   const { rows: settingsRows } = useRealtimeTable("settings", "updated_at");
   const settings = { ...DEFAULT_SETTINGS, ...(settingsRows[0] || {}) };
 
-  const articlesComputed = computeArticles(articles, sales, exchanges);
+  const articlesComputed = computeArticles(articles, sales, exchanges, etiquetaConsumos, embalagemConsumos, consumosManuais, transformacaoExecucoes, transformacaoExecucaoItens);
   const clientNameEarly = (id) => clients.find((c) => c.id === id)?.nome || "—";
   const articleNameEarly = (id) => articles.find((a) => a.id === id)?.artigo || "—";
 
@@ -124,7 +143,7 @@ function AppInner() {
   // a condição passa a verificar-se, e conclui-a sozinha quando deixa de se verificar — sem
   // nunca duplicar (a "chave" de cada regra+registo é única). Tarefas manuais nunca são tocadas.
   useEffect(() => {
-    const tarefasAtivas = gerarTarefasAutomaticas({ sales, articles, contentItems, liveRegistos, clients, articleName: articleNameEarly, clientName: clientNameEarly, settings, marketingDates });
+    const tarefasAtivas = gerarTarefasAutomaticas({ sales, articles, contentItems, liveRegistos, clients, encomendas, articleName: articleNameEarly, clientName: clientNameEarly, settings, marketingDates });
     const chavesAtivas = new Set(tarefasAtivas.map((t) => t.chave));
     const tarefasAutoExistentes = tasks.filter((t) => t.tipo === "auto");
     const chavesExistentes = new Set(tarefasAutoExistentes.map((t) => t.chave));
@@ -142,16 +161,20 @@ function AppInner() {
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sales, articles, contentItems, liveRegistos, clients, tasks, settingsRows, marketingDates]);
+  }, [sales, articles, contentItems, liveRegistos, clients, encomendas, tasks, settingsRows, marketingDates]);
 
-  // Mantém "estado" sincronizado com o stock atual, só nos dois estados automáticos —
+  // Mantém "estado" sincronizado com o stock atual, só nos estados automáticos —
   // "Sem Reposição" e "Pausado" são escolhas manuais e nunca são tocados por aqui.
+  // "Novo — Sem compras" passa sozinho a "Em stock" assim que uma compra concluída
+  // trouxer a primeira unidade de stock (nunca antes disso).
   useEffect(() => {
     articlesComputed.forEach((a) => {
       const estadoAtual = a.estado || "Em stock"; // artigos antigos sem "estado" gravado contam como "Em stock"
       if (estadoAtual === "Em stock" && a.stockAtual <= 0) {
         updateRow("articles", a.id, { estado: "Esgotado — vai repor" });
       } else if (estadoAtual === "Esgotado — vai repor" && a.stockAtual > 0) {
+        updateRow("articles", a.id, { estado: "Em stock" });
+      } else if (estadoAtual === "Novo — Sem compras" && a.stockAtual > 0) {
         updateRow("articles", a.id, { estado: "Em stock" });
       }
     });
@@ -170,7 +193,7 @@ function AppInner() {
 
   function handleExport() {
     try {
-      exportExcel({ articles, suppliers, articlesComputed, purchases, clientsComputed, clients, sales, contentItems, supplierName, articleName, clientName });
+      exportExcel({ articles, suppliers, articlesComputed, purchases, purchaseItems, clientsComputed, clients, sales, contentItems, encomendas, embalagens, embalagemItens, transformacoes, transformacaoItens, supplierName, articleName, clientName, tipos });
       notify("Excel exportado.");
     } catch (err) {
       notify(err.message || "Não foi possível exportar o Excel.", "error");
@@ -186,13 +209,14 @@ function AppInner() {
   // Estado relevante para "onde é que eu estava" — usado pelo botão "← Voltar".
   function snapshotView() {
     return {
-      tab, articleDetailId, clientDetailId, liveDetailId, showAllWaitlist,
+      tab, articleDetailId, encomendaDetailId, clientDetailId, liveDetailId, showAllWaitlist,
       quickEdit, contentFilterArticleId, calendarInitialDate,
     };
   }
   function restoreView(v) {
     setTab(v.tab);
     setArticleDetailId(v.articleDetailId ?? null);
+    setEncomendaDetailId(v.encomendaDetailId ?? null);
     setClientDetailId(v.clientDetailId ?? null);
     setLiveDetailId(v.liveDetailId ?? null);
     setShowAllWaitlist(!!v.showAllWaitlist);
@@ -235,6 +259,7 @@ function AppInner() {
   function openRecord(recordTab, id) {
     if (recordTab === "articles") { openArticleDetail(id); return; }
     if (recordTab === "clients") { openClientDetail(id); return; }
+    if (recordTab === "encomendas") { openEncomendaDetail(id); return; }
     pushNav();
     setTab(recordTab);
     setQuickEdit({ tab: recordTab, id });
@@ -253,6 +278,14 @@ function AppInner() {
     setArticleDetailId(articleId);
     setShowSearch(false);
   }
+
+  function openEncomendaDetail(encomendaId) {
+    pushNav();
+    setTab("sales");
+    setEncomendaDetailId(encomendaId);
+    setShowSearch(false);
+  }
+
 
   function openCalendar(date) {
     pushNav();
@@ -309,6 +342,14 @@ function AppInner() {
     setPresetSaleArticleId(articleId);
   }
 
+  function registerPurchaseForArticle(articleId) {
+    pushNav();
+    setArticleDetailId(null);
+    setTab("purchases");
+    setQuickNew("purchases");
+    setPresetPurchaseArticleId(articleId);
+  }
+
   function newContentForArticle(articleId) {
     pushNav();
     setArticleDetailId(null);
@@ -330,8 +371,9 @@ function AppInner() {
       )}
       {tab === "dashboard" && (
         <Dashboard
-          articles={articles} articlesComputed={articlesComputed} purchases={purchases} sales={sales}
+          articles={articles} articlesComputed={articlesComputed} purchases={purchases} purchaseItems={purchaseItems} sales={sales} tipos={tipos}
           suppliers={suppliers} clients={clients} clientsComputed={clientsComputed} lives={lives} liveRegistos={liveRegistos} exchanges={exchanges} contentItems={contentItems}
+          encomendas={encomendas} embalagemConsumos={embalagemConsumos} etiquetaConsumos={etiquetaConsumos}
           articleName={articleName} clientName={clientName} supplierName={supplierName}
           userEmail={session.user.email}
           onQuickAction={goToWithNew}
@@ -351,13 +393,14 @@ function AppInner() {
       {tab === "articles" && articleDetailId && (
         <ArticleDetail
           articleId={articleDetailId}
-          articlesComputed={articlesComputed} suppliers={suppliers} purchases={purchases} sales={sales} contentItems={contentItems}
-          supplierName={supplierName} clientName={clientName}
+          articlesComputed={articlesComputed} suppliers={suppliers} purchases={purchases} purchaseItems={purchaseItems} sales={sales} contentItems={contentItems}
+          supplierName={supplierName} clientName={clientName} tipos={tipos}
           onBack={() => setArticleDetailId(null)}
           onEdit={(a) => { setArticleDetailId(null); setQuickEdit({ tab: "articles", id: a.id }); }}
           onDuplicate={(a) => { setArticleDetailId(null); setQuickDuplicate(a.id); }}
           onNewSize={(a) => { setArticleDetailId(null); setQuickNewSize(a.id); }}
           onRegisterSale={registerSaleForArticle}
+          onRegisterPurchase={registerPurchaseForArticle}
           onNewContent={newContentForArticle}
           onViewAllContent={(id) => { setArticleDetailId(null); viewContentForArticle(id); }}
           onOpenClient={(id) => { setArticleDetailId(null); openClientDetail(id); }}
@@ -366,17 +409,25 @@ function AppInner() {
       )}
       {tab === "articles" && !articleDetailId && (
         <Articles
-          articlesComputed={articlesComputed} articles={articles} suppliers={suppliers} purchases={purchases} supplierName={supplierName}
+          articlesComputed={articlesComputed} articles={articles} tipos={tipos} cores={cores} padroes={padroes} etiquetaConsumos={etiquetaConsumos}
+          transformacoes={transformacoes} transformacaoItens={transformacaoItens}
+          consumosManuais={consumosManuais} transformacaoExecucoes={transformacaoExecucoes}
           contentItems={contentItems} onViewContent={viewContentForArticle} onOpenDetail={openArticleDetail}
           autoOpenNew={quickNew === "articles"} onConsumedAutoOpen={() => setQuickNew(null)}
           autoOpenEditId={quickEdit?.tab === "articles" ? quickEdit.id : null} onConsumedAutoOpenEdit={() => setQuickEdit(null)}
           autoDuplicateId={quickDuplicate} onConsumedAutoDuplicate={() => setQuickDuplicate(null)}
           autoNewSizeId={quickNewSize} onConsumedAutoNewSize={() => setQuickNewSize(null)}
+          onRegisterPurchase={registerPurchaseForArticle}
           settings={settings}
         />
       )}
       {tab === "purchases" && (
-        <Purchases purchases={purchases} suppliers={suppliers} supplierName={supplierName} autoOpenNew={quickNew === "purchases"} onConsumedAutoOpen={() => setQuickNew(null)} />
+        <Purchases
+          purchases={purchases} purchaseItems={purchaseItems} articles={articles} articlesComputed={articlesComputed}
+          suppliers={suppliers} supplierName={supplierName} articleName={articleName}
+          autoOpenNew={quickNew === "purchases"} onConsumedAutoOpen={() => setQuickNew(null)}
+          presetArticleId={presetPurchaseArticleId} onConsumedPresetArticle={() => setPresetPurchaseArticleId(null)}
+        />
       )}
       {tab === "clients" && clientDetailId && (
         <ClientDetail
@@ -397,27 +448,48 @@ function AppInner() {
           settings={settings}
         />
       )}
-      {tab === "sales" && (
+      {tab === "sales" && encomendaDetailId && (
+        <EncomendaDetail
+          encomendaId={encomendaDetailId}
+          encomendas={encomendas}
+          sales={sales}
+          clients={clients}
+          articlesComputed={articlesComputed}
+          embalagens={embalagens}
+          embalagemItens={embalagemItens}
+          embalagemConsumos={embalagemConsumos}
+          etiquetaConsumos={etiquetaConsumos}
+          articleName={articleName}
+          clientName={clientName}
+          onBack={() => setEncomendaDetailId(null)}
+          onEdit={(e) => { setEncomendaDetailId(null); setPresetEditEncomendaId(e.id); }}
+          onOpenClient={(id) => { pushNav(); setTab("clients"); setClientDetailId(id); }}
+          onOpenArticle={openArticleDetail}
+        />
+      )}
+      {tab === "sales" && !encomendaDetailId && (
         <Sales
-          sales={sales} articles={articles} clients={clients} clientsComputed={clientsComputed} articleName={articleName} clientName={clientName} articlesComputed={articlesComputed}
+          sales={sales} encomendas={encomendas} embalagens={embalagens} embalagemItens={embalagemItens} articles={articles} clients={clients} clientsComputed={clientsComputed} articleName={articleName} clientName={clientName} articlesComputed={articlesComputed} tipos={tipos}
           messageTemplates={messageTemplates}
           autoOpenNew={quickNew === "sales"} onConsumedAutoOpen={() => setQuickNew(null)}
           presetArticleId={presetSaleArticleId} onConsumedPresetArticle={() => setPresetSaleArticleId(null)}
           presetClientId={presetSaleClientId} onConsumedPresetClient={() => setPresetSaleClientId(null)}
           autoOpenEditId={quickEdit?.tab === "sales" ? quickEdit.id : null} onConsumedAutoOpenEdit={() => setQuickEdit(null)}
-          onRequestExchange={(saleId) => { setTab("exchanges"); setPresetExchangeSaleId(saleId); }}
+          onRequestExchange={(saleId) => { pushNav(); setTab("exchanges"); setPresetExchangeSaleId(saleId); }}
           returnToLiveId={saleReturnLiveId}
           liveName={saleReturnLiveId ? (lives.find((l) => l.id === saleReturnLiveId)?.nome || null) : null}
           onReturnToLive={() => { setTab("lives"); setLiveDetailId(saleReturnLiveId); setSaleReturnLiveId(null); }}
           loggedInOwner={loggedInOwner}
           onOpenArticle={openArticleDetail}
+          onOpenEncomendaDetail={openEncomendaDetail}
+          presetEditEncomendaId={presetEditEncomendaId} onConsumedPresetEditEncomenda={() => setPresetEditEncomendaId(null)}
           liveRegistos={liveRegistos}
           settings={settings}
         />
       )}
       {tab === "exchanges" && (
         <Exchanges
-          exchanges={exchanges} sales={sales} articlesComputed={articlesComputed} clientName={clientName} articleName={articleName}
+          exchanges={exchanges} sales={sales} articlesComputed={articlesComputed} tipos={tipos} clientName={clientName} articleName={articleName}
           presetSaleId={presetExchangeSaleId} onConsumedPresetSale={() => setPresetExchangeSaleId(null)}
           autoOpenNew={quickNew === "exchanges"} onConsumedAutoOpen={() => setQuickNew(null)}
           autoOpenEditId={quickEdit?.tab === "exchanges" ? quickEdit.id : null} onConsumedAutoOpenEdit={() => setQuickEdit(null)}
@@ -426,16 +498,17 @@ function AppInner() {
       )}
       {tab === "content" && (
         <Content
-          contentItems={contentItems} articles={articles} articleName={articleName}
+          contentItems={contentItems} articles={articles} tipos={tipos} articleName={articleName}
           autoOpenNew={quickNew === "content"} onConsumedAutoOpen={() => setQuickNew(null)}
           autoFilterArticleId={contentFilterArticleId} onConsumedAutoFilter={() => setContentFilterArticleId(null)}
           presetArticleId={presetContentArticleId} onConsumedPresetArticle={() => setPresetContentArticleId(null)}
           onOpenArticle={(id) => openArticleDetail(id)}
         />
       )}
+      {tab === "watermark" && <Watermark />}
       {tab === "calendar" && (
         <Calendar
-          contentItems={contentItems} articles={articles} articleName={articleName}
+          contentItems={contentItems} articles={articles} tipos={tipos} articleName={articleName}
           lives={lives}
           onOpenLive={openLiveFromCalendar}
           onNewLive={newLiveFromCalendar}
@@ -451,7 +524,7 @@ function AppInner() {
         <PriceSuggestions articlesComputed={articlesComputed} sales={sales} settings={settings} onOpenArticle={openArticleDetail} />
       )}
       {tab === "settings" && (
-        <Settings settings={settings} marketingDates={marketingDates} />
+        <Settings settings={settings} marketingDates={marketingDates} tipos={tipos} cores={cores} padroes={padroes} articlesComputed={articlesComputed} embalagens={embalagens} embalagemItens={embalagemItens} transformacoes={transformacoes} transformacaoItens={transformacaoItens} />
       )}
       {tab === "history" && <History />}
       {tab === "trash" && <Trash />}
@@ -464,7 +537,7 @@ function AppInner() {
       )}
       {tab === "lives" && !liveDetailId && !showAllWaitlist && (
         <Lives
-          lives={lives} liveRegistos={liveRegistos} articlesComputed={articlesComputed}
+          lives={lives} liveRegistos={liveRegistos} articlesComputed={articlesComputed} tipos={tipos}
           autoOpenNew={quickNew === "lives"} onConsumedAutoOpen={() => setQuickNew(null)}
           autoOpenEditId={quickEdit?.tab === "lives" ? quickEdit.id : null} onConsumedAutoOpenEdit={() => setQuickEdit(null)}
           presetDate={presetLiveDate} onConsumedPresetDate={() => setPresetLiveDate(null)}
@@ -501,6 +574,10 @@ function AppInner() {
           suppliers={suppliers}
           clients={clients}
           articlesComputed={articlesComputed}
+          sales={sales}
+          encomendas={encomendas}
+          articleName={articleName}
+          clientName={clientName}
           onClose={() => setShowSearch(false)}
           onOpenRecord={openRecord}
         />

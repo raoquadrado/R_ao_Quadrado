@@ -38,7 +38,7 @@ function gerarCelulas(ano, mes) {
   return celulas;
 }
 
-export default function Calendar({ contentItems, articles, articleName, lives, onOpenLive, onNewLive, tasks, onOpenTasks, initialDate, onConsumedInitialDate }) {
+export default function Calendar({ contentItems, articles, tipos, articleName, lives, onOpenLive, onNewLive, tasks, onOpenTasks, initialDate, onConsumedInitialDate }) {
   const hoje = new Date();
   const inicial = initialDate ? new Date(`${initialDate}T00:00:00`) : hoje;
   const [ano, setAno] = useState(inicial.getFullYear());
@@ -209,6 +209,7 @@ export default function Calendar({ contentItems, articles, articleName, lives, o
           data={modal.data}
           isNew={modal.isNew}
           articles={articles}
+          tipos={tipos}
           contentItems={contentItems}
           onClose={() => setModal(null)}
           onSave={handleSave}

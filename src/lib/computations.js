@@ -115,7 +115,20 @@ export function sugerirCodigoSequencial(prefixo, lista, campo = "codigo", exclud
 // `exchanges` (opcional): trocas com stock_ajustado=true devolvem 1+ unidades ao artigo
 // devolvido e retiram 1+ unidades ao novo artigo escolhido — aplicado uma única vez, no
 // momento em que se confirma a receção do artigo devolvido.
-export function computeArticles(articles, sales, exchanges = []) {
+// `etiquetaConsumos` (opcional): registos de "1 etiqueta física consumida" — cada vez que
+// se assinala "Peça já etiquetada" num artigo vendável, dá-se baixa de 1 unidade a um
+// artigo do tipo Etiqueta (Material Interno) escolhido. Ao desmarcar, a baixa é revertida
+// (registo eliminado). Conta como saída de stock do artigo-etiqueta, tal como uma venda.
+// `embalagemConsumos` (opcional): registos de consumo de material de embalagem (sacos,
+// papel de seda, cartões, autocolantes…) — dados de uma só vez quando se escolhe o Tipo de
+// Embalagem de uma Encomenda (ver secção 10). Nunca inclui etiquetas (essas só saem pelo
+// pisco "Peça já etiquetada" de cada venda, para não contar a mesma etiqueta duas vezes).
+// `consumosManuais` (opcional): baixas avulsas de material interno, com motivo, sem estarem
+// ligadas a nenhuma venda/encomenda (ex: "fita para decorar a montra").
+// `transformacaoExecucoes`/`transformacaoExecucaoItens` (opcional): cada execução de uma
+// Transformação (guardada ou avulsa) dá baixa aos artigos consumidos (itens) e entrada de
+// stock ao artigo de saída — ex: 20 folhas + 5ml tinteiro → +100 etiquetas.
+export function computeArticles(articles, sales, exchanges = [], etiquetaConsumos = [], embalagemConsumos = [], consumosManuais = [], transformacaoExecucoes = [], transformacaoExecucaoItens = []) {
   return articles.map((a) => {
     const vendasArtigo = sales.filter((s) => s.article_id === a.id);
     const reservedQty = vendasArtigo.filter((s) => s.estado === "Aguarda pagamento").reduce((sum, s) => sum + Number(s.quantidade || 0), 0);
@@ -124,13 +137,21 @@ export function computeArticles(articles, sales, exchanges = []) {
     const vendidas = reservedQty + soldQty;
     const devolvidoQty = exchanges.filter((e) => e.stock_ajustado && e.original_article_id === a.id).reduce((sum, e) => sum + Number(e.quantidade || 0), 0);
     const trocaSaidaQty = exchanges.filter((e) => e.stock_ajustado && e.novo_article_id === a.id).reduce((sum, e) => sum + Number(e.quantidade || 0), 0);
+    const etiquetasConsumidasQty = etiquetaConsumos.filter((c) => !c.deleted_at && c.etiqueta_article_id === a.id).length;
+    const embalagemConsumidaQty = embalagemConsumos.filter((c) => !c.deleted_at && c.article_id === a.id).reduce((sum, c) => sum + Number(c.quantidade || 0), 0);
+    const consumoManualQty = consumosManuais.filter((c) => !c.deleted_at && c.article_id === a.id).reduce((sum, c) => sum + Number(c.quantidade || 0), 0);
+    const transformacaoConsumidaQty = transformacaoExecucaoItens.filter((it) => {
+      const exec = transformacaoExecucoes.find((e) => e.id === it.execucao_id);
+      return exec && !exec.deleted_at && it.article_id === a.id;
+    }).reduce((sum, it) => sum + Number(it.quantidade || 0), 0);
+    const transformacaoProduzidaQty = transformacaoExecucoes.filter((e) => !e.deleted_at && e.output_article_id === a.id).reduce((sum, e) => sum + Number(e.output_quantidade || 0), 0);
     const qtd = Number(a.quantidade) || 0;
     const preco = Number(a.preco_unitario) || 0;
     const iva = Number(a.iva) || 0;
     const valorVenda = Number(a.valor_venda) || 0;
     const semIVA = preco * qtd;
     const comIVA = semIVA * (1 + iva / 100);
-    const physicalStock = qtd - soldQty - trocaSaidaQty + devolvidoQty; // ainda fisicamente no stock (livre ou reservado)
+    const physicalStock = qtd - soldQty - trocaSaidaQty + devolvidoQty - etiquetasConsumidasQty - embalagemConsumidaQty - consumoManualQty - transformacaoConsumidaQty + transformacaoProduzidaQty; // ainda fisicamente no stock (livre ou reservado)
     const stockAtual = physicalStock - reservedQty; // livre para vender agora
     const margemUnit = valorVenda - preco * (1 + iva / 100);
     const margemPct = valorVenda > 0 ? (margemUnit / valorVenda) * 100 : 0;

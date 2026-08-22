@@ -7,19 +7,28 @@ import { datasMarketingProximas } from "./specialDays";
 import { DEFAULT_SETTINGS, ARTICLE_ESTADOS_SEM_ALERTA } from "./constants";
 import { todayISO } from "./computations";
 
-export function gerarTarefasAutomaticas({ sales, articles, contentItems, liveRegistos, clients, articleName, clientName, settings = DEFAULT_SETTINGS, marketingDates }) {
+export function gerarTarefasAutomaticas({ sales, articles, contentItems, liveRegistos, clients, encomendas, articleName, clientName, settings = DEFAULT_SETTINGS, marketingDates }) {
   const cfg = { ...DEFAULT_SETTINGS, ...settings };
   const tarefas = [];
 
-  // 📦 Preparar encomenda — venda já paga, ainda por preparar
+  // 📦 Preparar encomenda / Enviar encomenda — uma tarefa por Encomenda, não por venda: uma
+  // encomenda com várias peças só precisa de ser preparada/enviada uma vez. Vendas soltas
+  // (sem Encomenda) continuam a gerar uma tarefa cada, tal como sempre.
+  const grupoDaVenda = (s) => s.encomenda_id || `solta:${s.id}`;
+  const vistosPreparar = new Set();
   (sales || []).forEach((s) => {
-    if (s.estado === "Pago" && (s.estado_envio === "Em Preparação" || s.estado_envio === "Não Definido" || !s.estado_envio)) {
-      tarefas.push({
-        chave: `prep:sale:${s.id}`,
-        titulo: `📦 Preparar encomenda da venda ${s.codigo || articleName(s.article_id)}`,
-        origem_tab: "sales", origem_id: s.id,
-      });
-    }
+    if (s.estado !== "Pago" || !(s.estado_envio === "Em Preparação" || s.estado_envio === "Não Definido" || !s.estado_envio)) return;
+    const grupo = grupoDaVenda(s);
+    if (vistosPreparar.has(grupo)) return;
+    vistosPreparar.add(grupo);
+    const encomenda = s.encomenda_id ? (encomendas || []).find((e) => e.id === s.encomenda_id) : null;
+    tarefas.push({
+      chave: `prep:${grupo}`,
+      titulo: encomenda
+        ? `📦 Preparar encomenda ${encomenda.codigo || ""} de ${clientName(s.client_id)}`
+        : `📦 Preparar encomenda da venda ${s.codigo || articleName(s.article_id)}`,
+      origem_tab: "sales", origem_id: s.id,
+    });
   });
 
   // 💳 Confirmar pagamento — reserva por pagar
@@ -33,20 +42,38 @@ export function gerarTarefasAutomaticas({ sales, articles, contentItems, liveReg
     }
   });
 
-  // 📦 Enviar encomenda — venda paga, já preparada
+  const vistosEnviar = new Set();
   (sales || []).forEach((s) => {
-    if (s.estado === "Pago" && s.estado_envio === "Preparado") {
+    if (s.estado !== "Pago" || s.estado_envio !== "Preparado") return;
+    const grupo = grupoDaVenda(s);
+    if (vistosEnviar.has(grupo)) return;
+    vistosEnviar.add(grupo);
+    const encomenda = s.encomenda_id ? (encomendas || []).find((e) => e.id === s.encomenda_id) : null;
+    tarefas.push({
+      chave: `ship:${grupo}`,
+      titulo: encomenda
+        ? `📦 Enviar encomenda ${encomenda.codigo || ""} de ${clientName(s.client_id)}`
+        : `📦 Enviar encomenda da venda ${s.codigo || articleName(s.article_id)}`,
+      origem_tab: "sales", origem_id: s.id,
+    });
+  });
+
+  // 🧩 Completar artigo criado rapidamente numa compra (só tem descrição, quantidade e
+  // custo — falta tipo, cor, SKU, valor de venda, etc.)
+  (articles || []).forEach((a) => {
+    if (a.estado === "A aguardar validação") {
       tarefas.push({
-        chave: `ship:sale:${s.id}`,
-        titulo: `📦 Enviar encomenda da venda ${s.codigo || articleName(s.article_id)}`,
-        origem_tab: "sales", origem_id: s.id,
+        chave: `validate:article:${a.id}`,
+        titulo: `🧩 Completar informação de "${a.artigo || "artigo"}" (criado numa compra)`,
+        origem_tab: "articles", origem_id: a.id,
       });
     }
   });
 
-  // 📸 Fotografar artigo novo
+  // 📸 Fotografar artigo novo — não se aplica a material interno (não é vendido, não
+  // precisa de foto para publicar ou vender)
   (articles || []).forEach((a) => {
-    if (!a.foto_url && !ARTICLE_ESTADOS_SEM_ALERTA.includes(a.estado)) {
+    if (!a.foto_url && !a.uso_interno && !ARTICLE_ESTADOS_SEM_ALERTA.includes(a.estado)) {
       tarefas.push({
         chave: `foto:article:${a.id}`,
         titulo: `📸 Fotografar ${a.artigo || "artigo"}`,
@@ -55,9 +82,9 @@ export function gerarTarefasAutomaticas({ sales, articles, contentItems, liveReg
     }
   });
 
-  // 🏷️ Colocar etiqueta física
+  // 🏷️ Colocar etiqueta física — não se aplica a material interno (não é vendido, não leva etiqueta de preço)
   (articles || []).forEach((a) => {
-    if (!a.etiquetado && !ARTICLE_ESTADOS_SEM_ALERTA.includes(a.estado)) {
+    if (!a.etiquetado && !a.uso_interno && !ARTICLE_ESTADOS_SEM_ALERTA.includes(a.estado)) {
       tarefas.push({
         chave: `label:article:${a.id}`,
         titulo: `🏷️ Colocar etiqueta em ${a.artigo || "artigo"}`,

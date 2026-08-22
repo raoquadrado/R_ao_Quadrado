@@ -51,7 +51,7 @@ export default function AboutModal({ onClose }) {
                 <div key={i} className="border-l-2 border-line pl-3">
                   <div className="text-sm font-medium text-ink">
                     {entrada.titulo}
-                    {entrada.hora && <span className="text-xs font-mono font-normal text-stone ml-1.5">· {entrada.hora}</span>}
+                    {entrada.hora && <span className="text-stone font-normal text-xs ml-1.5">{entrada.hora}</span>}
                   </div>
                   {entrada.notas && <p className="text-xs text-stone mt-0.5">{entrada.notas}</p>}
                 </div>

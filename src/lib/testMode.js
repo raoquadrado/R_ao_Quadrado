@@ -12,8 +12,10 @@ const listeners = new Set();
 // Tabelas que têm coluna is_test (settings fica sempre partilhada entre os dois modos, de
 // propósito — os limiares/definições não fazem sentido duplicados).
 export const TABELAS_COM_MODO_TESTE = new Set([
-  "suppliers", "articles", "purchases", "clients", "sales", "content_items",
-  "tasks", "lives", "live_registos", "message_templates", "exchanges", "marketing_dates",
+  "suppliers", "articles", "purchases", "purchase_items", "clients", "sales", "content_items",
+  "tasks", "lives", "live_registos", "message_templates", "exchanges", "marketing_dates", "article_tipos",
+  "article_cores", "article_padroes", "etiqueta_consumos", "encomendas", "embalagens", "embalagem_itens", "embalagem_consumos",
+  "consumos_manuais", "transformacoes", "transformacao_itens", "transformacao_execucoes", "transformacao_execucao_itens",
 ]);
 
 export function getTestMode() {

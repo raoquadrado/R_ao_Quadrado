@@ -20,6 +20,7 @@ const NAV = [
   { id: "exchanges", label: "Trocas", icon: "🔁", group: "Vendas" },
 
   { id: "content", label: "Centro de Conteúdo", icon: "📱", group: "Conteúdo & Redes" },
+  { id: "watermark", label: "Marca de Água", icon: "🖼️", group: "Conteúdo & Redes" },
   { id: "lives", label: "Diretos", icon: "🎥", group: "Conteúdo & Redes" },
   { id: "communication", label: "Comunicação", icon: "💬", group: "Conteúdo & Redes" },
 

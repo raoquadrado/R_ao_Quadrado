@@ -15,7 +15,7 @@ function diasEmStock(article, vendasArtigo) {
 
 // Sugestão para UM artigo. Devolve null se o artigo não tiver stock (não faz sentido sugerir).
 export function sugerirPreco(article, sales, settings = DEFAULT_SETTINGS) {
-  if (!article || article.stockAtual <= 0 || article.estado === "Pausado") return null;
+  if (!article || article.stockAtual <= 0 || article.estado === "Pausado" || article.uso_interno) return null;
   const cfg = { ...DEFAULT_SETTINGS, ...settings };
 
   const vendasArtigo = sales.filter((s) => s.article_id === article.id && s.estado !== "Não pago");

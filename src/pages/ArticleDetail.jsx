@@ -12,8 +12,8 @@ function ActionColor(action) {
 }
 
 export default function ArticleDetail({
-  articleId, articlesComputed, suppliers, purchases, sales, contentItems, supplierName, clientName,
-  onBack, onEdit, onDuplicate, onNewSize, onRegisterSale, onNewContent, onViewAllContent, onOpenClient, onOpenSale,
+  articleId, articlesComputed, suppliers, purchases, purchaseItems, sales, contentItems, supplierName, clientName, tipos,
+  onBack, onEdit, onDuplicate, onNewSize, onRegisterSale, onRegisterPurchase, onNewContent, onViewAllContent, onOpenClient, onOpenSale,
 }) {
   const a = articlesComputed.find((x) => x.id === articleId);
   const { rows: history } = useAuditLogForRecord("articles", articleId);
@@ -32,7 +32,11 @@ export default function ArticleDetail({
     );
   }
 
-  const compra = purchases.find((p) => p.id === a.purchase_id);
+  const historicoCompras = (purchaseItems || [])
+    .filter((it) => it.article_id === a.id)
+    .map((it) => ({ ...it, compra: purchases.find((p) => p.id === it.purchase_id) }))
+    .filter((it) => it.compra)
+    .sort((x, y) => (y.compra.data || "").localeCompare(x.compra.data || ""));
   const vendasArtigo = sales.filter((s) => s.article_id === a.id).sort((x, y) => (y.data || "").localeCompare(x.data || ""));
   const vendasPagas = vendasArtigo.filter((s) => s.estado === "Pago");
   const reservas = vendasArtigo.filter((s) => s.estado === "Aguarda pagamento");
@@ -71,12 +75,12 @@ export default function ArticleDetail({
                 {a.favorito && <span className="text-gold-500 text-lg" title="Favorito">★</span>}
                 {a.etiqueta && <TagBadge value={a.etiqueta} />}
               </div>
-              <p className="text-stone text-sm font-mono mt-0.5">{displaySku(a) || "sem SKU"} · {a.tipo || "—"} · {a.cor || "—"}{a.tamanho ? ` · Tamanho ${a.tamanho}` : ""}</p>
+              <p className="text-stone text-sm font-mono mt-0.5">{displaySku(a) || "sem SKU"} · {a.tipo || "—"} · {a.cor || "—"}{a.padrao && a.padrao !== "Liso" ? ` (${a.padrao})` : ""}{a.tamanho ? ` · Tamanho ${a.tamanho}` : ""}</p>
             </div>
             <div className="flex gap-2 flex-shrink-0">
               <button onClick={() => onEdit(a)} className="text-xs font-medium bg-white border border-line rounded px-3 py-1.5 text-ink">Editar</button>
               <button onClick={() => onDuplicate(a)} className="text-xs font-medium bg-white border border-line rounded px-3 py-1.5 text-ink">⎘ Duplicar</button>
-              {tipoTemTamanho(a.tipo) && (
+              {tipoTemTamanho(a.tipo, tipos) && (
                 <button onClick={() => onNewSize(a)} className="text-xs font-medium bg-white border border-line rounded px-3 py-1.5 text-ink">📏 Novo tamanho</button>
               )}
             </div>
@@ -86,29 +90,49 @@ export default function ArticleDetail({
             <Badge text={a.publicado ? "Publicado" : "Não publicado"} color={a.publicado ? "#254238" : "#8A8677"} bg={a.publicado ? "#DCEBE4" : "#F1EDE3"} />
             <Badge text={a.etiquetado ? "🏷️ Etiquetado" : "Não etiquetado"} color={a.etiquetado ? "#254238" : "#8A8677"} bg={a.etiquetado ? "#DCEBE4" : "#F1EDE3"} />
             {(() => { const ec = ARTICLE_ESTADO_COLORS[a.estado] || ARTICLE_ESTADO_COLORS["Em stock"]; return <Badge text={a.estado || "Em stock"} color={ec.color} bg={ec.bg} />; })()}
-            <span className="text-xs text-stone self-center">Fornecedor: <span className="text-ink font-medium">{supplierName(a.fornecedor_id)}</span></span>
           </div>
         </div>
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-5">
         <Card label="Stock atual" value={a.stockAtual} color={a.stockAtual <= 3 ? "#7A2A24" : "#1C2541"} />
+        <Card label="Preço médio (compras)" value={money(a.preco_medio)} color="#1C2541" />
         <Card label="Valor de venda" value={money(a.valor_venda)} color="#1C2541" />
         <Card label={`Margem (${pct(a.margemPct)})`} value={money(a.margemUnit)} color={a.margemUnit >= 0 ? "#254238" : "#7A2A24"} />
         <Card label="Lucro realizado (vendas pagas)" value={money(lucroRealizado)} color="#254238" />
       </div>
 
-      {/* Compra associada */}
-      <Section title="Compra associada">
-        {compra ? (
-          <div className="text-sm">
-            <p><span className="text-stone">Data:</span> {fmtDate(compra.data)} · <span className="text-stone">Fornecedor:</span> {supplierName(compra.supplier_id)}</p>
-            <p className="mt-1"><span className="text-stone">Fatura:</span> {compra.fatura || "—"} {compra.fatura_url && <a href={compra.fatura_url} target="_blank" rel="noreferrer" className="text-purple-600 underline ml-1">ver 📎</a>}</p>
-            <p className="mt-1"><span className="text-stone">Estado da compra:</span> {compra.estado || "Reservado"}</p>
-          </div>
+      {/* Histórico de compras */}
+      <Section
+        title={`Histórico de compras (${historicoCompras.length})`}
+        action={onRegisterPurchase && <button onClick={() => onRegisterPurchase(a.id)} className="text-xs font-medium text-purple-600 underline">+ Registar compra</button>}
+      >
+        {historicoCompras.length === 0 ? (
+          <p className="text-stone text-sm">Ainda sem compras registadas para este artigo — a quantidade e o preço unitário ficam a 0 até à primeira compra ficar "Concluída".</p>
         ) : (
-          <p className="text-stone text-sm">Sem compra associada.</p>
+          <div className="overflow-auto">
+            <table>
+              <thead><tr><th>Código</th><th>Data</th><th>Fornecedor</th><th>Referência</th><th>Qtd</th><th>Custo unit.</th><th>Fatura</th><th>Estado</th></tr></thead>
+              <tbody>
+                {historicoCompras.map((it) => (
+                  <tr key={it.id}>
+                    <td className="font-mono text-xs">{it.compra.codigo || "—"}</td>
+                    <td className="font-mono text-xs text-stone">{fmtDate(it.compra.data)}</td>
+                    <td>{supplierName(it.compra.supplier_id)}</td>
+                    <td className="font-mono text-xs text-stone">{it.referencia || "—"}</td>
+                    <td className="font-mono">{it.quantidade}</td>
+                    <td className="font-mono text-xs">{money(it.valor_unitario)}</td>
+                    <td className="text-stone text-xs">
+                      {it.compra.fatura || "—"}
+                      {it.compra.fatura_url && <a href={it.compra.fatura_url} target="_blank" rel="noreferrer" className="text-purple-600 underline ml-1">ver 📎</a>}
+                    </td>
+                    <td className="text-stone text-xs">{it.compra.estado || "Reservado"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </Section>
 

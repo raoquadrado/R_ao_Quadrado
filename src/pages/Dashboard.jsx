@@ -25,7 +25,7 @@ const PERIODS = [
 ];
 
 export default function Dashboard(props) {
-  const { articles, articlesComputed, purchases, sales, suppliers, clients, clientsComputed, lives, liveRegistos, exchanges, contentItems, articleName, clientName, supplierName, userEmail, onQuickAction, onNavigate, onOpenCalendar, tasksPendentes, settings } = props;
+  const { articles, articlesComputed, purchases, purchaseItems, sales, suppliers, clients, clientsComputed, lives, liveRegistos, exchanges, contentItems, encomendas, embalagemConsumos, etiquetaConsumos, articleName, clientName, supplierName, userEmail, onQuickAction, onNavigate, onOpenCalendar, tasksPendentes, settings, tipos } = props;
 
   const [periodKey, setPeriodKey] = useState("month");
   const [customStart, setCustomStart] = useState("");
@@ -33,7 +33,7 @@ export default function Dashboard(props) {
   const [owner, setOwner] = useState("Todos");
 
   const { kpis, charts, lists, alerts, pulse, saude, financas, resumoHoje } = computeFullDashboard({
-    articles, articlesComputed, purchases, sales, suppliers, clients, clientsComputed, lives, liveRegistos, exchanges, contentItems,
+    articles, articlesComputed, purchases, purchaseItems, sales, suppliers, clients, clientsComputed, lives, liveRegistos, exchanges, contentItems, encomendas, embalagemConsumos, etiquetaConsumos, tipos,
     periodKey, customStart, customEnd, owner, settings,
   });
 
@@ -199,6 +199,18 @@ export default function Dashboard(props) {
               />
             ))}
           </QuickList>
+
+          <QuickList title="Top 10 artigos mais comprados" onSeeAll={() => onNavigate("purchases")}>
+            {lists.maisCompradosArtigos.length === 0 ? <Empty /> : lists.maisCompradosArtigos.map((a) => (
+              <ListRow
+                key={a.id}
+                onClick={() => onNavigate("articles")}
+                line1={`${displaySku(a) ? displaySku(a) + " · " : ""}${a.artigo}`}
+                line2={a.uso_interno ? "📦 material interno" : "vendável"}
+                right={`${a.qtdComprada} un. compradas`}
+              />
+            ))}
+          </QuickList>
         </div>
       </CollapsibleSection>
 
@@ -275,8 +287,9 @@ export default function Dashboard(props) {
       </CollapsibleSection>
 
       {/* ---------- 🧾 Vendas ---------- */}
-      <CollapsibleSection icon="🧾" title="Vendas" subtitle="Vendas do período, últimas vendas e pagamentos">
-        <KpiRow items={kpis.row3.filter((k) => k.key === "vendasMes")} />
+      <CollapsibleSection icon="🧾" title="Vendas & Encomendas" subtitle="Vendas do período, encomendas em aberto, e o que se gastou em embalamento e etiquetas">
+        <KpiRow items={[...kpis.row3.filter((k) => k.key === "vendasMes"), ...kpis.row6.slice(0, 3)]} />
+        <KpiRow items={kpis.row6.slice(3)} />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <QuickList title="Últimas vendas" onSeeAll={() => onNavigate("sales")}>
             {lists.ultimasVendas.length === 0 ? <Empty /> : lists.ultimasVendas.map((s) => (
@@ -301,6 +314,25 @@ export default function Dashboard(props) {
                 right={money(s.valor_venda)}
               />
             ))}
+          </QuickList>
+
+          <QuickList title="Encomendas em aberto" onSeeAll={() => onNavigate("sales")}>
+            {(() => {
+              const abertas = (encomendas || [])
+                .filter((e) => e.estado_envio !== "Enviado" && e.estado_envio !== "Entregue em mãos")
+                .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))
+                .slice(0, 5);
+              if (abertas.length === 0) return <Empty />;
+              return abertas.map((e) => (
+                <ListRow
+                  key={e.id}
+                  onClick={() => onNavigate("sales")}
+                  line1={e.codigo || "Encomenda"}
+                  line2={clientName(e.client_id)}
+                  right={e.estado_envio || "Não Definido"}
+                />
+              ));
+            })()}
           </QuickList>
         </div>
       </CollapsibleSection>
@@ -333,6 +365,20 @@ export default function Dashboard(props) {
             ))}
           </QuickList>
         </div>
+      </CollapsibleSection>
+
+      {/* ---------- 📦 Material Interno ---------- */}
+      <CollapsibleSection icon="📦" title="Material Interno" subtitle="Etiquetas, embalagens e outro material de apoio — nunca vendido, com KPIs e alertas próprios">
+        <KpiRow items={kpis.row5} />
+        {alerts.filter((a) => a.text.includes("material(is) interno(s)")).length > 0 && (
+          <div className="flex flex-col gap-2 mb-2">
+            {alerts.filter((a) => a.text.includes("material(is) interno(s)")).map((a, i) => (
+              <button key={i} onClick={() => onNavigate(a.tab)} className="flex items-center gap-2 text-sm rounded-lg px-3 py-2 text-left bg-beige-100 hover:bg-beige-200 text-ink transition-colors">
+                <span>{a.icon}</span><span>{a.text}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </CollapsibleSection>
     </div>
   );
