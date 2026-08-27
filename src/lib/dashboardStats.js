@@ -49,7 +49,7 @@ function tipoGroup(tipo, tipos) {
  * período anterior equivalente), dados para os 6 gráficos, listas
  * rápidas e alertas — já filtrado por período e por owner.
  */
-export function computeFullDashboard({ articles, articlesComputed, purchases, purchaseItems, sales, suppliers, clients, clientsComputed, lives, liveRegistos, exchanges, contentItems, encomendas, embalagemConsumos, etiquetaConsumos, periodKey, customStart, customEnd, owner, settings, tipos }) {
+export function computeFullDashboard({ articles, articlesComputed, purchases, purchaseItems, sales, suppliers, clients, clientsComputed, lives, liveRegistos, exchanges, contentItems, encomendas, embalagemConsumos, etiquetaConsumos, gastosDiversos, periodKey, customStart, customEnd, owner, settings, tipos }) {
   const cfg = { ...DEFAULT_SETTINGS, ...settings };
   const range = getPeriodRange(periodKey, customStart, customEnd);
   const prevRange = prevPeriodRange(range);
@@ -64,11 +64,14 @@ export function computeFullDashboard({ articles, articlesComputed, purchases, pu
   const articlesInternos = articlesF.filter((a) => a.uso_interno);
   const purchasesAll = ownerFilter ? purchases.filter((p) => p.quem_comprou === ownerFilter) : purchases;
   const salesAll = ownerFilter ? sales.filter((s) => s.quem_vendeu === ownerFilter) : sales;
+  const gastosDiversosAll = (ownerFilter ? (gastosDiversos || []).filter((g) => g.owner === ownerFilter) : (gastosDiversos || [])).filter((g) => !g.deleted_at);
 
   const purchasesCur = purchasesAll.filter((p) => inRange(p.data, range));
   const purchasesPrev = purchasesAll.filter((p) => inRange(p.data, prevRange));
   const salesCur = salesAll.filter((s) => inRange(s.data, range));
   const salesPrev = salesAll.filter((s) => inRange(s.data, prevRange));
+  const gastosDiversosCur = gastosDiversosAll.filter((g) => inRange(g.data, range));
+  const gastosDiversosPrev = gastosDiversosAll.filter((g) => inRange(g.data, prevRange));
 
   const sum = (arr, fn) => arr.reduce((s, x) => s + (Number(fn(x)) || 0), 0);
   const purchaseValue = (p) => Number(p.valor_aquisicao || 0) - Number(p.desconto || 0);
@@ -126,18 +129,21 @@ export function computeFullDashboard({ articles, articlesComputed, purchases, pu
   const salesPrevPagas = salesPrev.filter((s) => s.estado === "Pago");
   const recebidoPeriodo = sum(salesCurPagas, (s) => s.valor_venda);
   const recebidoPeriodoPrev = sum(salesPrevPagas, (s) => s.valor_venda);
-  const lucroRealizadoPeriodo = lucroDeVendas(salesCurPagas);
-  const lucroRealizadoPeriodoPrev = lucroDeVendas(salesPrevPagas);
+  const gastosDiversosPeriodo = sum(gastosDiversosCur, (g) => g.valor);
+  const gastosDiversosPeriodoPrev = sum(gastosDiversosPrev, (g) => g.valor);
+  const lucroRealizadoPeriodo = lucroDeVendas(salesCurPagas) - gastosDiversosPeriodo;
+  const lucroRealizadoPeriodoPrev = lucroDeVendas(salesPrevPagas) - gastosDiversosPeriodoPrev;
   // "Por receber" é um saldo em aberto (não um fluxo do período): reservas por pagar + peças não pagas, sempre até hoje.
   const porReceber = sum(salesAll.filter((s) => s.estado === "Aguarda pagamento" || s.estado === "Não pago"), (s) => s.valor_venda);
 
   const financas = [
     { key: "recebido", icon: "💶", label: "Recebido (período)", value: recebidoPeriodo, prev: recebidoPeriodoPrev, kind: "money" },
     { key: "porReceber", icon: "⏳", label: "Por receber", value: porReceber, kind: "money" },
+    { key: "gastosDiversos", icon: "💸", label: "Gastos diversos (período)", value: gastosDiversosPeriodo, prev: gastosDiversosPeriodoPrev, kind: "money" },
     { key: "lucroRealizado", icon: "📊", label: "Lucro realizado (período)", value: lucroRealizadoPeriodo, prev: lucroRealizadoPeriodoPrev, kind: "money" },
   ];
   financas[0].delta = pctDelta(recebidoPeriodo, recebidoPeriodoPrev);
-  financas[2].delta = pctDelta(lucroRealizadoPeriodo, lucroRealizadoPeriodoPrev);
+  financas[3].delta = pctDelta(lucroRealizadoPeriodo, lucroRealizadoPeriodoPrev);
 
   // ---------- pulso: hoje / esta semana / este mês (independente do filtro de período) ----------
   const pulseRanges = { hoje: getPeriodRange("today"), semana: getPeriodRange("week"), mes: getPeriodRange("month") };
@@ -237,7 +243,8 @@ export function computeFullDashboard({ articles, articlesComputed, purchases, pu
     mes: label, Vendas: Number(sum(salesAll.filter((s) => s.data?.startsWith(key)), (s) => s.valor_venda).toFixed(2)),
   }));
   const lucroPorMes = monthLabels.map(({ key, label }) => ({
-    mes: label, Lucro: Number(lucroDeVendas(salesAll.filter((s) => s.data?.startsWith(key))).toFixed(2)),
+    mes: label,
+    Lucro: Number((lucroDeVendas(salesAll.filter((s) => s.data?.startsWith(key))) - sum((gastosDiversos || []).filter((g) => !g.deleted_at && g.data?.startsWith(key) && (!ownerFilter || g.owner === ownerFilter)), (g) => g.valor)).toFixed(2)),
   }));
 
   const catCount = {};
@@ -251,9 +258,10 @@ export function computeFullDashboard({ articles, articlesComputed, purchases, pu
 
   // Lucro por owner: compara sempre Rosa vs Rita (todo o histórico), independentemente do filtro de owner selecionado.
   const vendasPagasTodas = sales.filter((s) => s.estado === "Pago");
+  const gastosDiversosTodos = (gastosDiversos || []).filter((g) => !g.deleted_at);
   const lucroPorOwner = OWNERS.map((o) => ({
     name: o,
-    Lucro: Number(lucroDeVendas(vendasPagasTodas.filter((s) => s.quem_vendeu === o)).toFixed(2)),
+    Lucro: Number((lucroDeVendas(vendasPagasTodas.filter((s) => s.quem_vendeu === o)) - sum(gastosDiversosTodos.filter((g) => g.owner === o), (g) => g.valor)).toFixed(2)),
   }));
 
   const estadoStock = [

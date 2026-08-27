@@ -16,7 +16,7 @@ export const DEFAULT_MARGIN_PCT = 55;
 // Valores por defeito, usados até a linha de "settings" carregar da base de dados (ou se
 // ainda não existir) — têm de bater certo com os defaults definidos no schema.sql.
 // ---------- Versão da aplicação ----------
-export const APP_VERSION = "1.8.0";
+export const APP_VERSION = "1.9.0";
 export const APP_RELEASE_DATE = "2026-08-14";
 // Histórico de alterações — a entrada [0] é sempre a mais recente. Cada uma tem "data"
 // (fiável, vem do dia em que a alteração foi feita) e, sempre que a Rosa a fornece
@@ -24,6 +24,7 @@ export const APP_RELEASE_DATE = "2026-08-14";
 // ordem da lista é a ordem em que as alterações foram feitas. Sempre que se pede uma
 // alteração nova, acrescenta-se uma entrada aqui, no topo.
 export const APP_CHANGELOG = [
+  { data: "2026-08-27", hora: "14:47", titulo: "Novo separador: Consumos, Gastos & Transformações", notas: "Os botões \"Registar consumo\" e \"Registar transformação\" saem de Artigos e ganham separador próprio, ao lado de um novo \"💸 Registar gasto diverso\" — para saídas de dinheiro sem artigo associado (ex: gasóleo, portes), com descrição, valor, quem pagou e fornecedor opcional. O Lucro do Painel (período, por mês, por owner) já desconta estes gastos." },
   { data: "2026-08-22", hora: "23:47", titulo: "Diretos: trocar tamanho dentro de um conjunto", notas: "Junto a cada peça de um conjunto, um botão \"🔁 tamanho\" troca-a por outro tamanho do mesmo artigo (mesmo SKU base) — útil quando só se sabe o tamanho do cliente já durante o direto. Só afeta esse conjunto, a partir dali; vendas já registadas mantêm-se." },
   { data: "2026-08-22", hora: "23:47", titulo: "Correção: botão \"← Voltar\" em falta ao pedir troca", notas: "O atalho \"🔁 Pedir troca\", numa venda, esqueceu-se de avisar o histórico de navegação — por isso o botão \"← Voltar\" nunca aparecia depois. Corrigido." },
   { data: "2026-08-22", hora: "23:47", titulo: "Artigos: aplicar preço de venda com um clique", notas: "Um artigo vendável ainda sem preço mostra \"✨ aplicar\" na tabela — aplica logo a sugestão da margem-alvo, sem abrir a ficha. Novo filtro na coluna \"Venda\" (Com preço / Sem preço) e novo alerta no Painel para artigos vendáveis sem preço definido." },

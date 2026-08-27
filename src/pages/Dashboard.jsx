@@ -25,7 +25,7 @@ const PERIODS = [
 ];
 
 export default function Dashboard(props) {
-  const { articles, articlesComputed, purchases, purchaseItems, sales, suppliers, clients, clientsComputed, lives, liveRegistos, exchanges, contentItems, encomendas, embalagemConsumos, etiquetaConsumos, articleName, clientName, supplierName, userEmail, onQuickAction, onNavigate, onOpenCalendar, tasksPendentes, settings, tipos } = props;
+  const { articles, articlesComputed, purchases, purchaseItems, sales, suppliers, clients, clientsComputed, lives, liveRegistos, exchanges, contentItems, encomendas, embalagemConsumos, etiquetaConsumos, gastosDiversos, articleName, clientName, supplierName, userEmail, onQuickAction, onNavigate, onOpenCalendar, tasksPendentes, settings, tipos } = props;
 
   const [periodKey, setPeriodKey] = useState("month");
   const [customStart, setCustomStart] = useState("");
@@ -33,7 +33,7 @@ export default function Dashboard(props) {
   const [owner, setOwner] = useState("Todos");
 
   const { kpis, charts, lists, alerts, pulse, saude, financas, resumoHoje } = computeFullDashboard({
-    articles, articlesComputed, purchases, purchaseItems, sales, suppliers, clients, clientsComputed, lives, liveRegistos, exchanges, contentItems, encomendas, embalagemConsumos, etiquetaConsumos, tipos,
+    articles, articlesComputed, purchases, purchaseItems, sales, suppliers, clients, clientsComputed, lives, liveRegistos, exchanges, contentItems, encomendas, embalagemConsumos, etiquetaConsumos, gastosDiversos, tipos,
     periodKey, customStart, customEnd, owner, settings,
   });
 

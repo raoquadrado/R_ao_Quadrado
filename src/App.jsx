@@ -16,6 +16,7 @@ initTestMode(); // carrega a preferência de Modo de Teste guardada, antes de qu
 import Dashboard from "./pages/Dashboard";
 import Suppliers from "./pages/Suppliers";
 import Articles from "./pages/Articles";
+import Consumos from "./pages/Consumos";
 import Purchases from "./pages/Purchases";
 import Clients from "./pages/Clients";
 import Sales from "./pages/Sales";
@@ -121,6 +122,7 @@ function AppInner() {
   const { rows: transformacaoItens } = useRealtimeTable("transformacao_itens");
   const { rows: transformacaoExecucoes } = useRealtimeTable("transformacao_execucoes");
   const { rows: transformacaoExecucaoItens } = useRealtimeTable("transformacao_execucao_itens");
+  const { rows: gastosDiversos } = useRealtimeTable("gastos_diversos");
   const { rows: contentItems } = useRealtimeTable("content_items");
   const { rows: lives } = useRealtimeTable("lives");
   const { rows: liveRegistos } = useRealtimeTable("live_registos");
@@ -193,7 +195,7 @@ function AppInner() {
 
   function handleExport() {
     try {
-      exportExcel({ articles, suppliers, articlesComputed, purchases, purchaseItems, clientsComputed, clients, sales, contentItems, encomendas, embalagens, embalagemItens, transformacoes, transformacaoItens, supplierName, articleName, clientName, tipos });
+      exportExcel({ articles, suppliers, articlesComputed, purchases, purchaseItems, clientsComputed, clients, sales, contentItems, encomendas, embalagens, embalagemItens, transformacoes, transformacaoItens, gastosDiversos, supplierName, articleName, clientName, tipos });
       notify("Excel exportado.");
     } catch (err) {
       notify(err.message || "Não foi possível exportar o Excel.", "error");
@@ -373,7 +375,7 @@ function AppInner() {
         <Dashboard
           articles={articles} articlesComputed={articlesComputed} purchases={purchases} purchaseItems={purchaseItems} sales={sales} tipos={tipos}
           suppliers={suppliers} clients={clients} clientsComputed={clientsComputed} lives={lives} liveRegistos={liveRegistos} exchanges={exchanges} contentItems={contentItems}
-          encomendas={encomendas} embalagemConsumos={embalagemConsumos} etiquetaConsumos={etiquetaConsumos}
+          encomendas={encomendas} embalagemConsumos={embalagemConsumos} etiquetaConsumos={etiquetaConsumos} gastosDiversos={gastosDiversos}
           articleName={articleName} clientName={clientName} supplierName={supplierName}
           userEmail={session.user.email}
           onQuickAction={goToWithNew}
@@ -410,8 +412,6 @@ function AppInner() {
       {tab === "articles" && !articleDetailId && (
         <Articles
           articlesComputed={articlesComputed} articles={articles} tipos={tipos} cores={cores} padroes={padroes} etiquetaConsumos={etiquetaConsumos}
-          transformacoes={transformacoes} transformacaoItens={transformacaoItens}
-          consumosManuais={consumosManuais} transformacaoExecucoes={transformacaoExecucoes}
           contentItems={contentItems} onViewContent={viewContentForArticle} onOpenDetail={openArticleDetail}
           autoOpenNew={quickNew === "articles"} onConsumedAutoOpen={() => setQuickNew(null)}
           autoOpenEditId={quickEdit?.tab === "articles" ? quickEdit.id : null} onConsumedAutoOpenEdit={() => setQuickEdit(null)}
@@ -419,6 +419,14 @@ function AppInner() {
           autoNewSizeId={quickNewSize} onConsumedAutoNewSize={() => setQuickNewSize(null)}
           onRegisterPurchase={registerPurchaseForArticle}
           settings={settings}
+        />
+      )}
+      {tab === "consumos" && (
+        <Consumos
+          articlesComputed={articlesComputed} tipos={tipos}
+          transformacoes={transformacoes} transformacaoItens={transformacaoItens}
+          consumosManuais={consumosManuais} transformacaoExecucoes={transformacaoExecucoes}
+          gastosDiversos={gastosDiversos} suppliers={suppliers} supplierName={supplierName}
         />
       )}
       {tab === "purchases" && (

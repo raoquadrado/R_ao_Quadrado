@@ -5,13 +5,13 @@ import { Badge } from "../components/ui";
 const TABLE_LABELS = {
   suppliers: "Fornecedores", articles: "Artigos", purchases: "Compras", purchase_items: "Itens de Compra", clients: "Clientes", sales: "Vendas", encomendas: "Encomendas", content_items: "Conteúdo",
   embalagens: "Embalagens", embalagem_consumos: "Consumo de Embalagem", consumos_manuais: "Consumo Manual", transformacoes: "Transformações", transformacao_execucoes: "Execução de Transformação",
-  exchanges: "Trocas", lives: "Diretos", message_templates: "Modelos de mensagem",
+  exchanges: "Trocas", lives: "Diretos", message_templates: "Modelos de mensagem", gastos_diversos: "Gasto Diverso",
 };
 
 const TABLE_ICONS = {
   suppliers: "🚚", articles: "📦", purchases: "🛒", purchase_items: "🛒", clients: "👥", sales: "🧾", encomendas: "📦", content_items: "📱",
   embalagens: "📦", embalagem_consumos: "📦", consumos_manuais: "📉", transformacoes: "🔄", transformacao_execucoes: "🔄",
-  exchanges: "🔁", lives: "🎥", message_templates: "💬",
+  exchanges: "🔁", lives: "🎥", message_templates: "💬", gastos_diversos: "💸",
 };
 
 const ACTION_LABELS = {

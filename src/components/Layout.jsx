@@ -14,6 +14,7 @@ const NAV = [
   { id: "suppliers", label: "Fornecedores", icon: "🚚", group: "Catálogo" },
   { id: "purchases", label: "Compras", icon: "🛒", group: "Catálogo" },
   { id: "articles", label: "Artigos", icon: "📦", group: "Catálogo" },
+  { id: "consumos", label: "Consumos, Gastos & Transformações", icon: "📉", group: "Catálogo" },
 
   { id: "clients", label: "Clientes", icon: "👥", group: "Vendas" },
   { id: "sales", label: "Vendas", icon: "🧾", group: "Vendas" },
