@@ -3,7 +3,7 @@ import { money, todayISO, fmtDate, displaySku } from "./computations";
 import { computeFullDashboard } from "./dashboardStats";
 import { getTestMode } from "./testMode";
 
-export function exportExcel({ articles, suppliers, articlesComputed, purchases, purchaseItems, clientsComputed, clients, sales, contentItems, encomendas, embalagens, embalagemItens, transformacoes, transformacaoItens, gastosDiversos, supplierName, articleName, clientName, tipos }) {
+export function exportExcel({ articles, suppliers, articlesComputed, purchases, purchaseItems, clientsComputed, clients, sales, contentItems, encomendas, embalagens, embalagemItens, transformacoes, transformacaoItens, gastosDiversos, movimentosCapital, supplierName, articleName, clientName, tipos }) {
   const wb = XLSX.utils.book_new();
   const emTeste = getTestMode();
 
@@ -147,6 +147,15 @@ export function exportExcel({ articles, suppliers, articlesComputed, purchases, 
       }))
     );
     XLSX.utils.book_append_sheet(wb, wsGastos, "Gastos Diversos");
+  }
+
+  if (movimentosCapital) {
+    const wsCapital = XLSX.utils.json_to_sheet(
+      movimentosCapital.filter((m) => !m.deleted_at).map((m) => ({
+        Tipo: m.tipo, "Valor (€)": Number(m.valor || 0), Owner: m.owner || "—", Motivo: m.motivo || "—", Data: m.data || "—", Notas: m.notas || "—",
+      }))
+    );
+    XLSX.utils.book_append_sheet(wb, wsCapital, "Movimentos de Capital");
   }
 
   if (contentItems) {

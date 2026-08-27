@@ -346,6 +346,23 @@ create table if not exists gastos_diversos (
   created_at timestamptz default now()
 );
 
+-- Dinheiro que entra no negócio sem ser de uma venda (a Rosa/Rita mete capital), ou que sai
+-- sem ser uma Compra/Gasto (uma delas retira dinheiro para uso pessoal). Junto com Compras,
+-- Vendas pagas e Gastos Diversos, dá o Saldo em Caixa no Painel — quanto dinheiro há
+-- disponível agora, distinto do Lucro (que mede rentabilidade, não saldo).
+create table if not exists movimentos_capital (
+  id uuid primary key default gen_random_uuid(),
+  tipo text not null check (tipo in ('Entrada', 'Saída')),
+  valor numeric not null default 0,
+  owner text,
+  motivo text,
+  data date default current_date,
+  notas text,
+  is_test boolean not null default false,
+  deleted_at timestamptz,
+  created_at timestamptz default now()
+);
+
 -- Tipo de Transformação guardado (opcional) — receita fixa: vários inputs, sempre 1 output.
 create table if not exists transformacoes (
   id uuid primary key default gen_random_uuid(),
@@ -412,6 +429,17 @@ do $$
 begin
   if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'gastos_diversos') then
     alter publication supabase_realtime add table gastos_diversos;
+  end if;
+end $$;
+
+alter table movimentos_capital enable row level security;
+drop policy if exists "authenticated full access" on movimentos_capital;
+create policy "authenticated full access" on movimentos_capital
+  for all using (auth.uid() is not null) with check (auth.uid() is not null);
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'movimentos_capital') then
+    alter publication supabase_realtime add table movimentos_capital;
   end if;
 end $$;
 
@@ -1781,6 +1809,8 @@ drop trigger if exists trg_audit_consumos_manuais on consumos_manuais;
 create trigger trg_audit_consumos_manuais after insert or update or delete on consumos_manuais for each row execute function audit_trigger();
 drop trigger if exists trg_audit_gastos_diversos on gastos_diversos;
 create trigger trg_audit_gastos_diversos after insert or update or delete on gastos_diversos for each row execute function audit_trigger();
+drop trigger if exists trg_audit_movimentos_capital on movimentos_capital;
+create trigger trg_audit_movimentos_capital after insert or update or delete on movimentos_capital for each row execute function audit_trigger();
 drop trigger if exists trg_audit_transformacoes on transformacoes;
 create trigger trg_audit_transformacoes after insert or update or delete on transformacoes for each row execute function audit_trigger();
 drop trigger if exists trg_audit_transformacao_itens on transformacao_itens;

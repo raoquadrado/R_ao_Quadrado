@@ -6,7 +6,7 @@ import { TABELAS_COM_MODO_TESTE } from "./testMode";
 // (gerado automaticamente pela app, não precisa de cópia).
 export const TABELAS_BACKUP = [
   "suppliers", "articles", "purchases", "purchase_items", "clients", "embalagens", "embalagem_itens", "transformacoes", "transformacao_itens", "encomendas", "sales",
-  "embalagem_consumos", "consumos_manuais", "transformacao_execucoes", "transformacao_execucao_itens", "gastos_diversos", "content_items", "lives", "live_registos", "message_templates",
+  "embalagem_consumos", "consumos_manuais", "transformacao_execucoes", "transformacao_execucao_itens", "gastos_diversos", "movimentos_capital", "content_items", "lives", "live_registos", "message_templates",
   "exchanges", "tasks", "settings", "marketing_dates", "article_tipos",
   "article_cores", "article_padroes", "etiqueta_consumos",
 ];

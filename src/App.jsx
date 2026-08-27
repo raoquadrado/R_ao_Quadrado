@@ -123,6 +123,7 @@ function AppInner() {
   const { rows: transformacaoExecucoes } = useRealtimeTable("transformacao_execucoes");
   const { rows: transformacaoExecucaoItens } = useRealtimeTable("transformacao_execucao_itens");
   const { rows: gastosDiversos } = useRealtimeTable("gastos_diversos");
+  const { rows: movimentosCapital } = useRealtimeTable("movimentos_capital");
   const { rows: contentItems } = useRealtimeTable("content_items");
   const { rows: lives } = useRealtimeTable("lives");
   const { rows: liveRegistos } = useRealtimeTable("live_registos");
@@ -195,7 +196,7 @@ function AppInner() {
 
   function handleExport() {
     try {
-      exportExcel({ articles, suppliers, articlesComputed, purchases, purchaseItems, clientsComputed, clients, sales, contentItems, encomendas, embalagens, embalagemItens, transformacoes, transformacaoItens, gastosDiversos, supplierName, articleName, clientName, tipos });
+      exportExcel({ articles, suppliers, articlesComputed, purchases, purchaseItems, clientsComputed, clients, sales, contentItems, encomendas, embalagens, embalagemItens, transformacoes, transformacaoItens, gastosDiversos, movimentosCapital, supplierName, articleName, clientName, tipos });
       notify("Excel exportado.");
     } catch (err) {
       notify(err.message || "Não foi possível exportar o Excel.", "error");
@@ -375,7 +376,7 @@ function AppInner() {
         <Dashboard
           articles={articles} articlesComputed={articlesComputed} purchases={purchases} purchaseItems={purchaseItems} sales={sales} tipos={tipos}
           suppliers={suppliers} clients={clients} clientsComputed={clientsComputed} lives={lives} liveRegistos={liveRegistos} exchanges={exchanges} contentItems={contentItems}
-          encomendas={encomendas} embalagemConsumos={embalagemConsumos} etiquetaConsumos={etiquetaConsumos} gastosDiversos={gastosDiversos}
+          encomendas={encomendas} embalagemConsumos={embalagemConsumos} etiquetaConsumos={etiquetaConsumos} gastosDiversos={gastosDiversos} movimentosCapital={movimentosCapital}
           articleName={articleName} clientName={clientName} supplierName={supplierName}
           userEmail={session.user.email}
           onQuickAction={goToWithNew}

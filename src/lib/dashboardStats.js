@@ -49,7 +49,7 @@ function tipoGroup(tipo, tipos) {
  * período anterior equivalente), dados para os 6 gráficos, listas
  * rápidas e alertas — já filtrado por período e por owner.
  */
-export function computeFullDashboard({ articles, articlesComputed, purchases, purchaseItems, sales, suppliers, clients, clientsComputed, lives, liveRegistos, exchanges, contentItems, encomendas, embalagemConsumos, etiquetaConsumos, gastosDiversos, periodKey, customStart, customEnd, owner, settings, tipos }) {
+export function computeFullDashboard({ articles, articlesComputed, purchases, purchaseItems, sales, suppliers, clients, clientsComputed, lives, liveRegistos, exchanges, contentItems, encomendas, embalagemConsumos, etiquetaConsumos, gastosDiversos, movimentosCapital, periodKey, customStart, customEnd, owner, settings, tipos }) {
   const cfg = { ...DEFAULT_SETTINGS, ...settings };
   const range = getPeriodRange(periodKey, customStart, customEnd);
   const prevRange = prevPeriodRange(range);
@@ -144,6 +144,19 @@ export function computeFullDashboard({ articles, articlesComputed, purchases, pu
   ];
   financas[0].delta = pctDelta(recebidoPeriodo, recebidoPeriodoPrev);
   financas[3].delta = pctDelta(lucroRealizadoPeriodo, lucroRealizadoPeriodoPrev);
+
+  // ---------- Saldo em Caixa ----------
+  // Diferente do Lucro (rentabilidade, por período): é um saldo acumulado desde sempre —
+  // quanto dinheiro há disponível agora. Sempre conjunto (Rosa + Rita), nunca filtrado por
+  // owner nem por período, mesmo que o resto do Painel esteja.
+  const movimentosCapitalTodos = (movimentosCapital || []).filter((m) => !m.deleted_at);
+  const totalEntradasCapital = sum(movimentosCapitalTodos.filter((m) => m.tipo === "Entrada"), (m) => m.valor);
+  const totalSaidasCapital = sum(movimentosCapitalTodos.filter((m) => m.tipo === "Saída"), (m) => m.valor);
+  const totalVendasPagasSempre = sum(sales.filter((s) => s.estado === "Pago"), (s) => s.valor_venda);
+  const totalComprasSempre = sum(purchases, purchaseValue);
+  const totalGastosDiversosSempre = sum((gastosDiversos || []).filter((g) => !g.deleted_at), (g) => g.valor);
+  const saldoEmCaixa = totalEntradasCapital - totalSaidasCapital + totalVendasPagasSempre - totalComprasSempre - totalGastosDiversosSempre;
+  financas.push({ key: "saldoEmCaixa", icon: "🏦", label: "Saldo em Caixa", value: saldoEmCaixa, kind: "money" });
 
   // ---------- pulso: hoje / esta semana / este mês (independente do filtro de período) ----------
   const pulseRanges = { hoje: getPeriodRange("today"), semana: getPeriodRange("week"), mes: getPeriodRange("month") };

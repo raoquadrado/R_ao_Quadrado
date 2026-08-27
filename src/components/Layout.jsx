@@ -49,18 +49,6 @@ export default function Layout({ tab, setTab, userEmail, onExport, onSearch, chi
           <span className="flex items-center gap-2">🔎 Pesquisar</span>
           <kbd className="text-[10px] font-mono opacity-70">⌘K</kbd>
         </button>
-        <button
-          onClick={() => setTestMode(!testMode)}
-          className={`flex items-center justify-between gap-2 text-left rounded-md px-2.5 py-2 text-sm font-medium mb-3 ${
-            testMode ? "bg-[#F0C230] text-[#4A3208]" : "bg-white/10 text-[#C9CBD6] hover:bg-white/15"
-          }`}
-          title="Trabalhar sobre dados de teste, sem afetar os dados reais"
-        >
-          <span className="flex items-center gap-2">🧪 Modo de Teste</span>
-          <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${testMode ? "bg-[#4A3208] text-[#F0C230]" : "bg-white/10"}`}>
-            {testMode ? "ON" : "OFF"}
-          </span>
-        </button>
         <div className="overflow-y-auto flex-1 -mx-1 px-1">
           {NAV.map((t, i) => (
             <div key={t.id}>
@@ -81,6 +69,18 @@ export default function Layout({ tab, setTab, userEmail, onExport, onSearch, chi
           ))}
         </div>
         <div className="mt-auto flex flex-col gap-2">
+          <button
+            onClick={() => setTestMode(!testMode)}
+            className={`flex items-center justify-between gap-2 text-left rounded-md px-2.5 py-2 text-sm font-medium ${
+              testMode ? "bg-[#F0C230] text-[#4A3208]" : "bg-white/10 text-[#C9CBD6] hover:bg-white/15"
+            }`}
+            title="Trabalhar sobre dados de teste, sem afetar os dados reais"
+          >
+            <span className="flex items-center gap-2">🧪 Modo de Teste</span>
+            <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${testMode ? "bg-[#4A3208] text-[#F0C230]" : "bg-white/10"}`}>
+              {testMode ? "ON" : "OFF"}
+            </span>
+          </button>
           <button onClick={onExport} className="bg-rust text-white text-sm font-medium rounded-md py-2 justify-center flex items-center gap-1.5">
             ⭳ Exportar Excel
           </button>
@@ -103,12 +103,12 @@ export default function Layout({ tab, setTab, userEmail, onExport, onSearch, chi
       <header className={`md:hidden flex items-center justify-between px-4 py-3 ${testMode ? "bg-[#4A3208]" : "bg-ink"}`}>
         <Logo size="sm" light />
         <div className="flex items-center gap-3">
-          <button onClick={() => setTestMode(!testMode)} className={`text-xs font-medium px-2 py-1 rounded ${testMode ? "bg-[#F0C230] text-[#4A3208]" : "text-[#F0C89A]"}`} title="Modo de Teste">
-            🧪 {testMode ? "ON" : "OFF"}
-          </button>
           <button onClick={onSearch} className="text-[#F0C89A] text-base">🔎</button>
           <a href="/manual-utilizador.pdf" target="_blank" rel="noreferrer" className="text-[#F0C89A] text-base" title="Manual de Utilizador">📖</a>
           <button onClick={() => setShowAbout(true)} className="text-[#F0C89A] text-base" title="Sobre">ℹ️</button>
+          <button onClick={() => setTestMode(!testMode)} className={`text-xs font-medium px-2 py-1 rounded ${testMode ? "bg-[#F0C230] text-[#4A3208]" : "text-[#F0C89A]"}`} title="Modo de Teste">
+            🧪 {testMode ? "ON" : "OFF"}
+          </button>
           <button onClick={onExport} className="text-[#F0C89A] text-xs font-medium">Exportar</button>
         </div>
       </header>

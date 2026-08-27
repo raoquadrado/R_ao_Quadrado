@@ -15,7 +15,7 @@ export const TABELAS_COM_MODO_TESTE = new Set([
   "suppliers", "articles", "purchases", "purchase_items", "clients", "sales", "content_items",
   "tasks", "lives", "live_registos", "message_templates", "exchanges", "marketing_dates", "article_tipos",
   "article_cores", "article_padroes", "etiqueta_consumos", "encomendas", "embalagens", "embalagem_itens", "embalagem_consumos",
-  "consumos_manuais", "transformacoes", "transformacao_itens", "transformacao_execucoes", "transformacao_execucao_itens", "gastos_diversos",
+  "consumos_manuais", "transformacoes", "transformacao_itens", "transformacao_execucoes", "transformacao_execucao_itens", "gastos_diversos", "movimentos_capital",
 ]);
 
 export function getTestMode() {

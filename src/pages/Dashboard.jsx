@@ -3,11 +3,15 @@ import {
   BarChart, Bar, LineChart, Line, AreaChart, Area, PieChart, Pie, Cell,
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
 } from "recharts";
+import { supabase } from "../supabaseClient";
+import { deleteRow } from "../lib/useRealtimeTable";
+import { getTestMode } from "../lib/testMode";
 import { computeFullDashboard } from "../lib/dashboardStats";
 import { money, fmtDate, displaySku, todayISO } from "../lib/computations";
-import { CLIENT_STATUS_COLORS, MOTIVATIONAL_QUOTES, ownerFromEmail } from "../lib/constants";
+import { CLIENT_STATUS_COLORS, MOTIVATIONAL_QUOTES, ownerFromEmail, OWNERS } from "../lib/constants";
 import { feriadoDoDia, diasEspeciaisDoDia } from "../lib/specialDays";
-import { Badge } from "../components/ui";
+import { Badge, Button, Field, ModalShell, ModalActions, inputCls } from "../components/ui";
+import { useToast, useConfirm } from "../lib/overlays";
 import Logo from "../components/Logo";
 
 const PURPLE = "#A83F91";
@@ -25,15 +29,18 @@ const PERIODS = [
 ];
 
 export default function Dashboard(props) {
-  const { articles, articlesComputed, purchases, purchaseItems, sales, suppliers, clients, clientsComputed, lives, liveRegistos, exchanges, contentItems, encomendas, embalagemConsumos, etiquetaConsumos, gastosDiversos, articleName, clientName, supplierName, userEmail, onQuickAction, onNavigate, onOpenCalendar, tasksPendentes, settings, tipos } = props;
+  const { articles, articlesComputed, purchases, purchaseItems, sales, suppliers, clients, clientsComputed, lives, liveRegistos, exchanges, contentItems, encomendas, embalagemConsumos, etiquetaConsumos, gastosDiversos, movimentosCapital, articleName, clientName, supplierName, userEmail, onQuickAction, onNavigate, onOpenCalendar, tasksPendentes, settings, tipos } = props;
 
   const [periodKey, setPeriodKey] = useState("month");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
   const [owner, setOwner] = useState("Todos");
+  const [capitalModal, setCapitalModal] = useState(null); // { tipo: "Entrada" | "Saída" }
+  const notify = useToast();
+  const confirm = useConfirm();
 
   const { kpis, charts, lists, alerts, pulse, saude, financas, resumoHoje } = computeFullDashboard({
-    articles, articlesComputed, purchases, purchaseItems, sales, suppliers, clients, clientsComputed, lives, liveRegistos, exchanges, contentItems, encomendas, embalagemConsumos, etiquetaConsumos, gastosDiversos, tipos,
+    articles, articlesComputed, purchases, purchaseItems, sales, suppliers, clients, clientsComputed, lives, liveRegistos, exchanges, contentItems, encomendas, embalagemConsumos, etiquetaConsumos, gastosDiversos, movimentosCapital, tipos,
     periodKey, customStart, customEnd, owner, settings,
   });
 
@@ -54,8 +61,12 @@ export default function Dashboard(props) {
       <PulseStrip pulse={pulse} />
 
       {/* ---------- 💰 Financeiro ---------- */}
-      <CollapsibleSection icon="💰" title="Financeiro" subtitle="Recebido, por receber, lucro, valor investido e tendências">
+      <CollapsibleSection icon="💰" title="Financeiro" subtitle="Recebido, por receber, lucro, saldo em caixa e tendências">
         <KpiRow items={[...kpis.row1, ...financas, saude.find((s) => s.key === "ticket"), saude.find((s) => s.key === "margemMedia")]} />
+        <div className="flex gap-2 mb-5">
+          <Button onClick={() => setCapitalModal({ tipo: "Entrada" })}>+ Registar entrada</Button>
+          <Button onClick={() => setCapitalModal({ tipo: "Saída" })}>− Registar retirada</Button>
+        </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mt-2 mb-5">
           <ChartCard title="Compras por mês">
             <ResponsiveContainer width="100%" height={220}>
@@ -113,7 +124,7 @@ export default function Dashboard(props) {
             </ResponsiveContainer>
           </ChartCard>
         </div>
-        <div className="grid grid-cols-1 gap-5">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           <QuickList title="Últimos movimentos">
             {lists.ultimosMovimentos.length === 0 ? <Empty /> : lists.ultimosMovimentos.map((m) => (
               <ListRow
@@ -126,7 +137,33 @@ export default function Dashboard(props) {
               />
             ))}
           </QuickList>
+          <QuickList title="Movimentos de capital">
+            {(movimentosCapital || []).filter((m) => !m.deleted_at).length === 0 ? <Empty /> : (
+              [...(movimentosCapital || [])].filter((m) => !m.deleted_at).sort((a, b) => (b.created_at || "").localeCompare(a.created_at || "")).slice(0, 8).map((m) => (
+                <ListRow
+                  key={m.id}
+                  onClick={async () => {
+                    const ok = await confirm({ title: `Anular ${m.tipo.toLowerCase()}?`, message: `"${m.motivo || m.tipo}" deixa de contar para o Saldo em Caixa.`, confirmLabel: "Anular" });
+                    if (!ok) return;
+                    await deleteRow("movimentos_capital", m.id);
+                    notify(`${m.tipo} anulada.`);
+                  }}
+                  line1={`${m.motivo || m.tipo} — ${m.owner || "—"}`}
+                  line2={fmtDate(m.data)}
+                  right={`${m.tipo === "Entrada" ? "+" : "−"}${money(m.valor)}`}
+                  badge={{ text: m.tipo, color: m.tipo === "Entrada" ? "#254238" : GOLD_DARK, bg: m.tipo === "Entrada" ? "#DCEBE4" : "#F5EADD" }}
+                />
+              ))
+            )}
+          </QuickList>
         </div>
+        {capitalModal && (
+          <MovimentoCapitalModal
+            tipo={capitalModal.tipo}
+            onClose={() => setCapitalModal(null)}
+            onSaved={() => { notify(`${capitalModal.tipo} registada.`); setCapitalModal(null); }}
+          />
+        )}
       </CollapsibleSection>
 
       {/* ---------- 📦 Stock & Artigos ---------- */}
@@ -698,4 +735,59 @@ function ListRow({ line1, line2, right, badge, onClick }) {
 
 function Empty() {
   return <div className="text-stone text-sm py-4">Sem registos ainda.</div>;
+}
+
+function MovimentoCapitalModal({ tipo, onClose, onSaved }) {
+  const [valor, setValor] = useState(0);
+  const [ownerSel, setOwnerSel] = useState(OWNERS[0]);
+  const [motivo, setMotivo] = useState("");
+  const [data, setDataCampo] = useState(todayISO());
+  const [notas, setNotas] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSave() {
+    if (!valor || valor <= 0) { setError("Indica um valor válido."); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const { error: err } = await supabase.from("movimentos_capital").insert({
+        tipo, valor, owner: ownerSel, motivo: motivo || null, data, notas: notas || null, is_test: getTestMode(),
+      });
+      if (err) throw new Error(err.message);
+      onSaved();
+    } catch (err) {
+      setError(err.message || "Não foi possível registar.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <ModalShell title={tipo === "Entrada" ? "Registar entrada de capital" : "Registar retirada de capital"} onClose={onClose}>
+      <p className="text-stone text-sm mb-3">
+        {tipo === "Entrada"
+          ? "Dinheiro que a Rosa ou a Rita metem no negócio, de fora (ex: capital inicial, reforço para stock)."
+          : "Dinheiro que a Rosa ou a Rita tiram do negócio para uso pessoal."}
+        {" "}Entra no Saldo em Caixa do Painel — não é o mesmo que o Lucro.
+      </p>
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_110px] gap-3 mb-3">
+        <Field label="Motivo"><input className={inputCls} value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder={tipo === "Entrada" ? "ex: capital inicial" : "ex: uso pessoal"} /></Field>
+        <Field label="Valor (€)"><input type="number" min="0" step="0.01" className={inputCls} value={valor} onChange={(e) => setValor(parseFloat(e.target.value) || 0)} /></Field>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+        <Field label="Quem">
+          <select className={inputCls} value={ownerSel} onChange={(e) => setOwnerSel(e.target.value)}>
+            {OWNERS.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="Data"><input type="date" className={inputCls} value={data} onChange={(e) => setDataCampo(e.target.value)} /></Field>
+      </div>
+      {error && <p className="text-clay-dark text-xs mb-3">{error}</p>}
+      <div className="mb-5">
+        <Field label="Notas"><textarea rows={2} className={inputCls} value={notas} onChange={(e) => setNotas(e.target.value)} /></Field>
+      </div>
+      <ModalActions onClose={onClose} onSave={handleSave} label={saving ? "A guardar…" : (tipo === "Entrada" ? "Registar entrada" : "Registar retirada")} disabled={saving} />
+    </ModalShell>
+  );
 }
