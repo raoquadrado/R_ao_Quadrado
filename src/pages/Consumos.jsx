@@ -5,7 +5,7 @@ import { getTestMode } from "../lib/testMode";
 import { OWNERS, tipoUsoInterno } from "../lib/constants";
 import { money, fmtDate, displaySku, todayISO, uid } from "../lib/computations";
 import { useToast, useConfirm } from "../lib/overlays";
-import { Field, Button, ModalShell, ModalActions, TabHeader, EmptyRow, inputCls } from "../components/ui";
+import { Field, Button, ModalShell, ModalActions, EmptyRow, inputCls } from "../components/ui";
 
 export default function Consumos({ articlesComputed, tipos, transformacoes, transformacaoItens, consumosManuais, transformacaoExecucoes, gastosDiversos, suppliers, supplierName }) {
   const [consumoModal, setConsumoModal] = useState(false);
@@ -43,7 +43,10 @@ export default function Consumos({ articlesComputed, tipos, transformacoes, tran
 
   return (
     <div>
-      <TabHeader title="Consumos, Gastos & Transformações" sub={`${movimentos.length} movimento(s) registado(s)`} />
+      <div className="mb-4">
+        <h1 className="font-display text-2xl font-semibold mb-0.5">Consumos, Gastos & Transformações</h1>
+        <p className="text-stone text-sm">{movimentos.length} movimento(s) registado(s)</p>
+      </div>
       <p className="text-stone text-sm mb-4 -mt-2">Tudo o que sai do negócio sem ser uma Compra de artigo nem uma Venda: consumo avulso de material interno, gastos diversos (ex: gasóleo, portes), e transformações de material (ex: papel + tinteiro → etiquetas).</p>
       <div className="flex gap-2 mb-4 flex-wrap">
         <Button onClick={() => setConsumoModal(true)}>📉 Registar consumo</Button>
