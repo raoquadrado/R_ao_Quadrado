@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { insertRow, updateRow, deleteRow } from "../lib/useRealtimeTable";
 import { EXCHANGE_ESTADOS, EXCHANGE_ESTADO_COLORS, EXCHANGE_MOTIVOS, DEFAULT_SETTINGS, tipoUsoInterno } from "../lib/constants";
-import { money, fmtDate, todayISO, uid, displaySku, sugerirCodigoPorData, dataLimiteTroca } from "../lib/computations";
+import { money, fmtDate, todayISO, uid, displaySku, sugerirCodigoPorData, dataLimiteTroca, EXCHANGE_WINDOW_DAYS } from "../lib/computations";
 import { useToast, useConfirm } from "../lib/overlays";
 import { Field, Button, Badge, ModalShell, ModalActions, SearchBox, TabHeader, RowActions, EmptyRow, inputCls, useColumnFilters, FilterTh } from "../components/ui";
 

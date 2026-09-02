@@ -61,7 +61,7 @@ export default function LiveDetail({ live, registos, clients, clientsComputed, a
       )}
       {live.estado === "Terminado" && (
         <ValidationView live={live} registos={registos} clients={clients} clientsComputed={clientsComputed} articlesComputed={articlesComputed} articleName={articleName}
-          onCreateClientFor={criarClientePara} notify={notify} confirm={confirm} onOpenSale={onOpenSale} messageTemplates={messageTemplates} loggedInOwner={loggedInOwner} />
+          onCreateClientFor={criarClientePara} notify={notify} confirm={confirm} onOpenSale={onOpenSale} messageTemplates={messageTemplates} loggedInOwner={loggedInOwner} settings={settings} />
       )}
 
       {clientModal && (
@@ -384,7 +384,7 @@ function TrocarTamanhoPeca({ artigo, articlesComputed, onTrocar }) {
 }
 
 // ---------- Terminado: validação em duas etapas ----------
-function ValidationView({ live, registos, clients, clientsComputed, articlesComputed, articleName, onCreateClientFor, notify, confirm, onOpenSale, messageTemplates, loggedInOwner }) {
+function ValidationView({ live, registos, clients, clientsComputed, articlesComputed, articleName, onCreateClientFor, notify, confirm, onOpenSale, messageTemplates, loggedInOwner, settings }) {
   const ativos = registos.filter((r) => r.estado !== "Cancelado");
   const [messageFor, setMessageFor] = useState(null); // { registo, item }
   const usernamesEmFalta = [...new Map(

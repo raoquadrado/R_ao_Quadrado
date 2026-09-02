@@ -4,7 +4,7 @@ import { deleteRow, updateRow } from "../lib/useRealtimeTable";
 import { getTestMode } from "../lib/testMode";
 import { uploadDocument, deleteDocument } from "../lib/fileStorage";
 import { OWNERS, PAYMENT_METHODS, PAYMENT_METHOD_LABELS, PAYMENT_STATUS, CLIENT_STATUS_COLORS, tipoUsoInterno } from "../lib/constants";
-import { money, fmtDate, todayISO, uid, sugerirCodigoPorData, dadosEmpresa } from "../lib/computations";
+import { money, fmtDate, todayISO, uid, sugerirCodigoPorData, dadosEmpresa, displaySku } from "../lib/computations";
 import { useToast, useConfirm } from "../lib/overlays";
 import { Field, Button, Badge, ModalShell, ModalActions, SearchBox, TabHeader, RowActions, EmptyRow, inputCls, useColumnFilters, FilterTh } from "../components/ui";
 import MessageComposer from "../components/MessageComposer";
