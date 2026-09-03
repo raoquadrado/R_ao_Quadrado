@@ -34,7 +34,7 @@ const shippingColor = (estado) => {
   return { color: "#8A8677", bg: "#F1EDE3" }; // "Não Definido"
 };
 
-export default function Sales({ sales, encomendas, embalagens, embalagemItens, articles, clients, clientsComputed, articleName, clientName, articlesComputed, tipos, messageTemplates, autoOpenNew, onConsumedAutoOpen, presetArticleId, onConsumedPresetArticle, presetClientId, onConsumedPresetClient, autoOpenEditId, onConsumedAutoOpenEdit, onRequestExchange, returnToLiveId, liveName, onReturnToLive, loggedInOwner, onOpenArticle, onOpenEncomendaDetail, presetEditEncomendaId, onConsumedPresetEditEncomenda, liveRegistos, settings }) {
+export default function Sales({ sales, encomendas, embalagens, embalagemItens, metodosEnvio, articles, clients, clientsComputed, articleName, clientName, articlesComputed, tipos, messageTemplates, autoOpenNew, onConsumedAutoOpen, presetArticleId, onConsumedPresetArticle, presetClientId, onConsumedPresetClient, autoOpenEditId, onConsumedAutoOpenEdit, onRequestExchange, returnToLiveId, liveName, onReturnToLive, loggedInOwner, onOpenArticle, onOpenEncomendaDetail, presetEditEncomendaId, onConsumedPresetEditEncomenda, liveRegistos, settings }) {
   const [q, setQ] = useState("");
   const [modal, setModal] = useState(null);
   const [messageFor, setMessageFor] = useState(null); // venda selecionada para enviar mensagem
@@ -391,6 +391,7 @@ export default function Sales({ sales, encomendas, embalagens, embalagemItens, a
           encomendas={encomendas}
           embalagens={embalagens}
           embalagemItens={embalagemItens}
+          metodosEnvio={metodosEnvio}
           articlesComputed={articlesComputed}
           clientName={clientName}
           articleName={articleName}
@@ -409,7 +410,7 @@ export default function Sales({ sales, encomendas, embalagens, embalagemItens, a
           templates={messageTemplates}
           telefone={clients.find((c) => c.id === messageFor.client_id)?.telefone}
           dados={{
-            ...dadosEmpresa(settings),
+            ...dadosEmpresa(settings, messageFor),
             cliente: clientName(messageFor.client_id),
             artigo: articleName(messageFor.article_id),
             quantidade: messageFor.quantidade,
@@ -643,7 +644,7 @@ function SaleModal({ data, isNew, articles, clients, clientsComputed, sales, art
           templates={messageTemplates}
           telefone={clients.find((c) => c.id === f.client_id)?.telefone}
           dados={{
-            ...dadosEmpresa(settings),
+            ...dadosEmpresa(settings, f),
             cliente: clientName ? clientName(f.client_id) : (clients.find((c) => c.id === f.client_id)?.nome || "cliente"),
             artigo: articleName ? articleName(f.article_id) : "",
             quantidade: f.quantidade,

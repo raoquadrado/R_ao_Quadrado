@@ -139,6 +139,7 @@ create table if not exists encomendas (
   client_id uuid references clients(id) on delete set null,
   estado_envio text default 'Não Definido',
   metodo_envio text,
+  valor_portes numeric,
   codigo_envio text,
   data_envio date,
   fatura_rosa text, -- fatura emitida pela Rosa para as suas peças desta encomenda
@@ -147,6 +148,21 @@ create table if not exists encomendas (
   fatura_rita_url text,
   embalagem_id uuid, -- ver tabela embalagens, mais abaixo (fk adicionada depois, por ordem de criação)
   notas text,
+  is_test boolean not null default false,
+  deleted_at timestamptz,
+  created_at timestamptz default now()
+);
+alter table encomendas add column if not exists valor_portes numeric;
+
+-- Métodos de Envio configuráveis (nome + valor de portes cada) — substitui a lista fixa
+-- antiga (CTT/Entrega em mão/Transportadora) e os dois campos soltos de portes
+-- nacionais/internacionais. O valor de portes de cada método é só uma sugestão: fica
+-- guardado à parte em cada Encomenda (encomendas.valor_portes), editável caso a caso.
+create table if not exists metodos_envio (
+  id uuid primary key default gen_random_uuid(),
+  nome text not null,
+  valor_portes numeric not null default 0,
+  ativo boolean not null default true,
   is_test boolean not null default false,
   deleted_at timestamptz,
   created_at timestamptz default now()
@@ -228,6 +244,17 @@ do $$
 begin
   if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'embalagens') then
     alter publication supabase_realtime add table embalagens;
+  end if;
+end $$;
+
+alter table metodos_envio enable row level security;
+drop policy if exists "authenticated full access" on metodos_envio;
+create policy "authenticated full access" on metodos_envio
+  for all using (auth.uid() is not null) with check (auth.uid() is not null);
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'metodos_envio') then
+    alter publication supabase_realtime add table metodos_envio;
   end if;
 end $$;
 
@@ -607,7 +634,7 @@ as $$
 begin
   if p_encomenda_id is null then return; end if;
   update sales s set
-    estado_envio = e.estado_envio, metodo_envio = e.metodo_envio, codigo_envio = e.codigo_envio,
+    estado_envio = e.estado_envio, metodo_envio = e.metodo_envio, valor_portes = e.valor_portes, codigo_envio = e.codigo_envio,
     data_envio = e.data_envio,
     fatura = case when s.quem_vendeu = 'Rita' then e.fatura_rita else e.fatura_rosa end,
     fatura_url = case when s.quem_vendeu = 'Rita' then e.fatura_rita_url else e.fatura_rosa_url end
@@ -661,6 +688,7 @@ create or replace function save_encomenda(
   p_client_id uuid,
   p_estado_envio text,
   p_metodo_envio text,
+  p_valor_portes numeric,
   p_codigo_envio text,
   p_data_envio date,
   p_fatura_rosa text,
@@ -717,12 +745,12 @@ begin
   end if;
 
   if v_estado_atual is null then
-    insert into encomendas (id, codigo, client_id, estado_envio, metodo_envio, codigo_envio, data_envio, fatura_rosa, fatura_rosa_url, fatura_rita, fatura_rita_url, embalagem_id, notas, is_test)
-    values (v_id, p_codigo, p_client_id, coalesce(p_estado_envio, 'Não Definido'), p_metodo_envio, p_codigo_envio, p_data_envio, p_fatura_rosa, p_fatura_rosa_url, p_fatura_rita, p_fatura_rita_url, p_embalagem_id, p_notas, coalesce(p_is_test, false));
+    insert into encomendas (id, codigo, client_id, estado_envio, metodo_envio, valor_portes, codigo_envio, data_envio, fatura_rosa, fatura_rosa_url, fatura_rita, fatura_rita_url, embalagem_id, notas, is_test)
+    values (v_id, p_codigo, p_client_id, coalesce(p_estado_envio, 'Não Definido'), p_metodo_envio, p_valor_portes, p_codigo_envio, p_data_envio, p_fatura_rosa, p_fatura_rosa_url, p_fatura_rita, p_fatura_rita_url, p_embalagem_id, p_notas, coalesce(p_is_test, false));
   else
     update encomendas set
       codigo = p_codigo, client_id = p_client_id, estado_envio = coalesce(p_estado_envio, 'Não Definido'),
-      metodo_envio = p_metodo_envio, codigo_envio = p_codigo_envio, data_envio = p_data_envio,
+      metodo_envio = p_metodo_envio, valor_portes = p_valor_portes, codigo_envio = p_codigo_envio, data_envio = p_data_envio,
       fatura_rosa = p_fatura_rosa, fatura_rosa_url = p_fatura_rosa_url,
       fatura_rita = p_fatura_rita, fatura_rita_url = p_fatura_rita_url,
       embalagem_id = p_embalagem_id, notas = p_notas
@@ -756,7 +784,7 @@ begin
   if auth.uid() is null then
     raise exception 'Não autenticado';
   end if;
-  update sales set encomenda_id = null, estado_envio = 'Não Definido', metodo_envio = null, codigo_envio = null, data_envio = null, fatura = null, fatura_url = null
+  update sales set encomenda_id = null, estado_envio = 'Não Definido', metodo_envio = null, valor_portes = null, codigo_envio = null, data_envio = null, fatura = null, fatura_url = null
   where encomenda_id = p_id;
   update embalagem_consumos set deleted_at = now() where encomenda_id = p_id and deleted_at is null;
   update encomendas set deleted_at = now() where id = p_id;
@@ -1553,6 +1581,7 @@ alter table sales add column if not exists comprovativo_url text;
 alter table sales add column if not exists data_limite_reserva date;
 alter table sales add column if not exists estado_envio text default 'Não Definido';
 alter table sales add column if not exists metodo_envio text;
+alter table sales add column if not exists valor_portes numeric;
 alter table sales add column if not exists codigo_envio text;
 alter table clients add column if not exists codigo_desconto text;
 alter table clients add column if not exists data_inicio_desconto date;
@@ -1801,6 +1830,8 @@ drop trigger if exists trg_audit_encomendas on encomendas;
 create trigger trg_audit_encomendas after insert or update or delete on encomendas for each row execute function audit_trigger();
 drop trigger if exists trg_audit_embalagens on embalagens;
 create trigger trg_audit_embalagens after insert or update or delete on embalagens for each row execute function audit_trigger();
+drop trigger if exists trg_audit_metodos_envio on metodos_envio;
+create trigger trg_audit_metodos_envio after insert or update or delete on metodos_envio for each row execute function audit_trigger();
 drop trigger if exists trg_audit_embalagem_itens on embalagem_itens;
 create trigger trg_audit_embalagem_itens after insert or update or delete on embalagem_itens for each row execute function audit_trigger();
 drop trigger if exists trg_audit_embalagem_consumos on embalagem_consumos;

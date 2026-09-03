@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { supabase } from "../supabaseClient";
 import { updateRow, insertRow, deleteRow } from "../lib/useRealtimeTable";
 import { getTestMode } from "../lib/testMode";
-import { uid, displaySku } from "../lib/computations";
+import { uid, displaySku, money } from "../lib/computations";
 import { DEFAULT_SETTINGS, tipoUsoInterno, tipoEhEtiqueta } from "../lib/constants";
 import { gerarCopiaSeguranca, descarregarJSON, restaurarCopiaSeguranca } from "../lib/backup";
 import { uploadLogo } from "../lib/photoStorage";
@@ -56,12 +56,10 @@ const CAMPOS = [
 const CAMPOS_ENCOMENDAS = [
   { key: "transportadora_padrao", label: "Transportadora pré-definida", tipo: "text", ajuda: "ex: CTT, DPD, GLS…" },
   { key: "prazo_envio_dias", label: "Prazo de envio (dias úteis)", tipo: "number", ajuda: "" },
-  { key: "portes_nacionais", label: "Portes nacionais (€)", tipo: "number", ajuda: "" },
-  { key: "portes_internacionais", label: "Portes internacionais (€)", tipo: "number", ajuda: "" },
   { key: "portes_gratis_acima", label: "Portes grátis a partir de (€)", tipo: "number", ajuda: "Deixar em branco se não houver portes grátis." },
 ];
 
-export default function Settings({ settings, marketingDates, tipos, cores, padroes, articlesComputed, embalagens, embalagemItens, transformacoes, transformacaoItens }) {
+export default function Settings({ settings, marketingDates, tipos, cores, padroes, articlesComputed, embalagens, embalagemItens, transformacoes, transformacaoItens, metodosEnvio }) {
   const [f, setF] = useState({ ...DEFAULT_SETTINGS, ...settings });
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -231,6 +229,20 @@ export default function Settings({ settings, marketingDates, tipos, cores, padro
     if (!ok) return;
     await deleteRow("embalagens", e.id);
     notify("Tipo de Embalagem removido.");
+  }
+
+  // ---------- Métodos de Envio ----------
+  const [metodoEnvioModal, setMetodoEnvioModal] = useState(null); // { metodo } — a criar/editar
+  const metodosEnvioOrdenados = [...(metodosEnvio || [])].sort((a, b) => a.nome.localeCompare(b.nome, "pt"));
+
+  async function toggleMetodoEnvioAtivo(m) {
+    await updateRow("metodos_envio", m.id, { ativo: m.ativo === false ? true : false });
+  }
+  async function handleDeleteMetodoEnvio(m) {
+    const ok = await confirm({ title: "Eliminar Método de Envio?", message: `"${m.nome}" deixa de aparecer nas opções — encomendas já criadas com este método mantêm-se.`, confirmLabel: "Eliminar" });
+    if (!ok) return;
+    await deleteRow("metodos_envio", m.id);
+    notify("Método de Envio removido.");
   }
 
   // ---------- Transformações ----------
@@ -675,6 +687,50 @@ export default function Settings({ settings, marketingDates, tipos, cores, padro
       )}
 
       <div className="mb-6">
+        <h2 className="font-display text-base font-semibold text-ink mb-3">🚚 Métodos de Envio</h2>
+        <div className="bg-white border border-line rounded-xl p-4">
+          <p className="text-stone text-sm mb-3">
+            Cada método (ex: "CTT Correio Azul", "Transportadora XPTO") tem um valor de portes próprio. Ao escolher o método numa Encomenda, esse valor é sugerido automaticamente — mas continua a poder ser ajustado caso a caso (ex: um desconto pontual), sem alterar aqui a definição do método.
+          </p>
+          <div className="overflow-auto mb-3">
+            <table>
+              <thead><tr><th>Nome</th><th>Valor de portes</th><th>Ativo</th><th></th></tr></thead>
+              <tbody>
+                {metodosEnvioOrdenados.length === 0 && (
+                  <tr><td colSpan={4} className="text-stone text-sm py-3 text-center">Ainda não há Métodos de Envio definidos.</td></tr>
+                )}
+                {metodosEnvioOrdenados.map((m) => (
+                  <tr key={m.id} className={m.ativo === false ? "opacity-50" : ""}>
+                    <td className="font-medium">{m.nome}</td>
+                    <td className="font-mono text-xs">{money(m.valor_portes)}</td>
+                    <td>
+                      <button type="button" onClick={() => toggleMetodoEnvioAtivo(m)} title={m.ativo === false ? "Ativar" : "Desativar"}>
+                        {m.ativo === false ? "⬜" : "✅"}
+                      </button>
+                    </td>
+                    <td className="flex gap-2">
+                      <button type="button" onClick={() => setMetodoEnvioModal({ metodo: m })} className="text-purple-600 text-xs">editar</button>
+                      <button type="button" onClick={() => handleDeleteMetodoEnvio(m)} className="text-stone hover:text-clay-dark text-xs">✕</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <Button variant="primary" onClick={() => setMetodoEnvioModal({ metodo: null })}>+ Novo Método de Envio</Button>
+          <p className="text-stone text-[11px] mt-3">💡 Eliminar um Método de Envio só o remove das opções — encomendas já criadas com esse método mantêm-se, com o valor de portes que já tinham.</p>
+        </div>
+      </div>
+
+      {metodoEnvioModal && (
+        <MetodoEnvioModal
+          metodo={metodoEnvioModal.metodo}
+          onClose={() => setMetodoEnvioModal(null)}
+          onSaved={() => { notify(metodoEnvioModal.metodo ? "Método de Envio atualizado." : "Método de Envio criado."); setMetodoEnvioModal(null); }}
+        />
+      )}
+
+      <div className="mb-6">
         <h2 className="font-display text-base font-semibold text-ink mb-3">🔄 Transformações</h2>
         <div className="bg-white border border-line rounded-xl p-4">
           <p className="text-stone text-sm mb-3">
@@ -968,6 +1024,48 @@ function TransformacaoConfigModal({ transformacao, artigos, onClose, onSaved }) 
       <div className="mb-5">
         <Field label="Notas"><textarea rows={2} className={inputCls} value={notas} onChange={(e) => setNotas(e.target.value)} /></Field>
       </div>
+      <ModalActions onClose={onClose} onSave={handleSave} label={saving ? "A guardar…" : "Guardar"} disabled={saving} />
+    </ModalShell>
+  );
+}
+
+function MetodoEnvioModal({ metodo, onClose, onSaved }) {
+  const isNew = !metodo;
+  const [nome, setNome] = useState(metodo?.nome || "");
+  const [valorPortes, setValorPortes] = useState(metodo?.valor_portes ?? 0);
+  const [ativo, setAtivo] = useState(metodo?.ativo !== false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSave() {
+    if (!nome.trim()) { setError("Indica um nome para o Método de Envio."); return; }
+    setSaving(true);
+    setError("");
+    try {
+      if (isNew) {
+        await insertRow("metodos_envio", { nome: nome.trim(), valor_portes: Number(valorPortes || 0), ativo });
+      } else {
+        await updateRow("metodos_envio", metodo.id, { nome: nome.trim(), valor_portes: Number(valorPortes || 0), ativo });
+      }
+      onSaved();
+    } catch (err) {
+      setError(err.message || "Não foi possível guardar o Método de Envio.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <ModalShell title={isNew ? "Novo Método de Envio" : "Editar Método de Envio"} onClose={onClose}>
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_130px] gap-3 mb-3">
+        <Field label="Nome"><input className={inputCls} value={nome} onChange={(e) => setNome(e.target.value)} placeholder="ex: CTT Correio Azul" /></Field>
+        <Field label="Valor de portes (€)"><input type="number" min="0" step="0.01" className={inputCls} value={valorPortes} onChange={(e) => setValorPortes(parseFloat(e.target.value) || 0)} /></Field>
+      </div>
+      <label className="flex items-center gap-1.5 text-xs text-stone mb-5">
+        <input type="checkbox" checked={ativo} onChange={(e) => setAtivo(e.target.checked)} />
+        Ativo
+      </label>
+      {error && <p className="text-clay-dark text-xs mb-3">{error}</p>}
       <ModalActions onClose={onClose} onSave={handleSave} label={saving ? "A guardar…" : "Guardar"} disabled={saving} />
     </ModalShell>
   );

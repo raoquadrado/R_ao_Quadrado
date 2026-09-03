@@ -124,6 +124,7 @@ function AppInner() {
   const { rows: transformacaoExecucaoItens } = useRealtimeTable("transformacao_execucao_itens");
   const { rows: gastosDiversos } = useRealtimeTable("gastos_diversos");
   const { rows: movimentosCapital } = useRealtimeTable("movimentos_capital");
+  const { rows: metodosEnvio } = useRealtimeTable("metodos_envio");
   const { rows: contentItems } = useRealtimeTable("content_items");
   const { rows: lives } = useRealtimeTable("lives");
   const { rows: liveRegistos } = useRealtimeTable("live_registos");
@@ -196,7 +197,7 @@ function AppInner() {
 
   function handleExport() {
     try {
-      exportExcel({ articles, suppliers, articlesComputed, purchases, purchaseItems, clientsComputed, clients, sales, contentItems, encomendas, embalagens, embalagemItens, transformacoes, transformacaoItens, gastosDiversos, movimentosCapital, supplierName, articleName, clientName, tipos });
+      exportExcel({ articles, suppliers, articlesComputed, purchases, purchaseItems, clientsComputed, clients, sales, contentItems, encomendas, embalagens, embalagemItens, transformacoes, transformacaoItens, gastosDiversos, movimentosCapital, metodosEnvio, supplierName, articleName, clientName, tipos });
       notify("Excel exportado.");
     } catch (err) {
       notify(err.message || "Não foi possível exportar o Excel.", "error");
@@ -478,7 +479,7 @@ function AppInner() {
       )}
       {tab === "sales" && !encomendaDetailId && (
         <Sales
-          sales={sales} encomendas={encomendas} embalagens={embalagens} embalagemItens={embalagemItens} articles={articles} clients={clients} clientsComputed={clientsComputed} articleName={articleName} clientName={clientName} articlesComputed={articlesComputed} tipos={tipos}
+          sales={sales} encomendas={encomendas} embalagens={embalagens} embalagemItens={embalagemItens} metodosEnvio={metodosEnvio} articles={articles} clients={clients} clientsComputed={clientsComputed} articleName={articleName} clientName={clientName} articlesComputed={articlesComputed} tipos={tipos}
           messageTemplates={messageTemplates}
           autoOpenNew={quickNew === "sales"} onConsumedAutoOpen={() => setQuickNew(null)}
           presetArticleId={presetSaleArticleId} onConsumedPresetArticle={() => setPresetSaleArticleId(null)}
@@ -533,7 +534,7 @@ function AppInner() {
         <PriceSuggestions articlesComputed={articlesComputed} sales={sales} settings={settings} onOpenArticle={openArticleDetail} />
       )}
       {tab === "settings" && (
-        <Settings settings={settings} marketingDates={marketingDates} tipos={tipos} cores={cores} padroes={padroes} articlesComputed={articlesComputed} embalagens={embalagens} embalagemItens={embalagemItens} transformacoes={transformacoes} transformacaoItens={transformacaoItens} />
+        <Settings settings={settings} marketingDates={marketingDates} tipos={tipos} cores={cores} padroes={padroes} articlesComputed={articlesComputed} embalagens={embalagens} embalagemItens={embalagemItens} transformacoes={transformacoes} transformacaoItens={transformacaoItens} metodosEnvio={metodosEnvio} />
       )}
       {tab === "history" && <History />}
       {tab === "trash" && <Trash />}

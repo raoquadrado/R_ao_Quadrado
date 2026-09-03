@@ -16,7 +16,7 @@ export const DEFAULT_MARGIN_PCT = 55;
 // Valores por defeito, usados até a linha de "settings" carregar da base de dados (ou se
 // ainda não existir) — têm de bater certo com os defaults definidos no schema.sql.
 // ---------- Versão da aplicação ----------
-export const APP_VERSION = "1.10.1";
+export const APP_VERSION = "1.11.0";
 export const APP_RELEASE_DATE = "2026-08-14";
 // Histórico de alterações — a entrada [0] é sempre a mais recente. Cada uma tem "data"
 // (fiável, vem do dia em que a alteração foi feita) e, sempre que a Rosa a fornece
@@ -24,6 +24,7 @@ export const APP_RELEASE_DATE = "2026-08-14";
 // ordem da lista é a ordem em que as alterações foram feitas. Sempre que se pede uma
 // alteração nova, acrescenta-se uma entrada aqui, no topo.
 export const APP_CHANGELOG = [
+  { data: "2026-09-03", hora: "08:56", titulo: "Métodos de Envio configuráveis, com valor de portes", notas: "Novo em Definições: cada Método de Envio (ex: \"CTT Correio Azul\") tem o seu próprio valor de portes — substitui a lista fixa antiga e os campos soltos de portes nacionais/internacionais. Ao escolher o método numa Encomenda, o valor é sugerido automaticamente (mas continua editável, para casos pontuais). O Valor de portes fica bem visível na ficha completa da Encomenda, e disponível nas mensagens a clientes como {{portes}}." },
   { data: "2026-08-27", hora: "19:43", titulo: "Barra lateral: Modo de Teste ao pé do Exportar Excel", notas: "O botão \"🧪 Modo de Teste\" sai do topo da barra lateral e passa para baixo, mesmo por cima de \"⭳ Exportar Excel\" — mais perto de onde já se costuma olhar antes de exportar dados. No telemóvel, os ícones ficam também lado a lado." },
   { data: "2026-08-27", hora: "19:40", titulo: "Painel: Saldo em Caixa", notas: "Nova secção em Financeiro: \"🏦 Saldo em Caixa\" — quanto dinheiro há disponível agora (Entradas de capital − Retiradas + Vendas recebidas − Compras − Gastos diversos), sempre conjunto e acumulado desde sempre, diferente do Lucro (que mede rentabilidade por período). Botões \"+ Registar entrada\" e \"− Registar retirada\" para dinheiro que entra/sai do negócio sem ser venda, compra ou gasto diverso." },
   { data: "2026-08-27", hora: "14:47", titulo: "Novo separador: Consumos, Gastos & Transformações", notas: "Os botões \"Registar consumo\" e \"Registar transformação\" saem de Artigos e ganham separador próprio, ao lado de um novo \"💸 Registar gasto diverso\" — para saídas de dinheiro sem artigo associado (ex: gasóleo, portes), com descrição, valor, quem pagou e fornecedor opcional. O Lucro do Painel (período, por mês, por owner) já desconta estes gastos." },
@@ -102,8 +103,6 @@ export const DEFAULT_SETTINGS = {
   rita_nif: "",
 
   transportadora_padrao: "",
-  portes_nacionais: "",
-  portes_internacionais: "",
   portes_gratis_acima: "",
   prazo_envio_dias: "",
 

@@ -54,8 +54,7 @@ export const MESSAGE_TEMPLATE_VARS = [
   { chave: "a_o", desc: '"a" ou "o" (concordância, ex: "reservada")' },
   { chave: "transportadora", desc: "transportadora pré-definida (Definições → Encomendas)" },
   { chave: "prazo_envio", desc: "prazo de envio, em dias úteis (Definições → Encomendas)" },
-  { chave: "portes_nacionais", desc: "valor dos portes nacionais (Definições → Encomendas)" },
-  { chave: "portes_internacionais", desc: "valor dos portes internacionais (Definições → Encomendas)" },
+  { chave: "portes", desc: "valor de portes desta encomenda (definido ao gerar a encomenda, sugerido pelo Método de Envio escolhido)" },
   { chave: "portes_gratis_acima", desc: "valor a partir do qual os portes são grátis (Definições → Encomendas)" },
   { chave: "iban_rosa", desc: "IBAN da Rosa (Definições → Pagamentos)" },
   { chave: "iban_rita", desc: "IBAN da Rita (Definições → Pagamentos)" },
@@ -66,12 +65,13 @@ export const MESSAGE_TEMPLATE_VARS = [
 // Junta ao objeto de dados de uma mensagem os valores de Dados para Encomendas/Pagamentos
 // definidos em Definições — para poderem usar {{transportadora}}, {{iban_rosa}}, etc. em
 // qualquer modelo. Campos por preencher ficam simplesmente vazios (nunca "undefined").
-export function dadosEmpresa(settings = {}) {
+// "registo" (opcional): a venda ou encomenda em causa, para preencher {{portes}} com o
+// valor de portes já definido nessa encomenda (não é um valor global das Definições).
+export function dadosEmpresa(settings = {}, registo = null) {
   return {
     transportadora: settings.transportadora_padrao || "",
     prazo_envio: settings.prazo_envio_dias ? `${settings.prazo_envio_dias} dias úteis` : "",
-    portes_nacionais: settings.portes_nacionais !== undefined && settings.portes_nacionais !== "" ? money(settings.portes_nacionais) : "",
-    portes_internacionais: settings.portes_internacionais !== undefined && settings.portes_internacionais !== "" ? money(settings.portes_internacionais) : "",
+    portes: registo?.valor_portes !== undefined && registo?.valor_portes !== null && registo?.valor_portes !== "" ? money(registo.valor_portes) : "",
     portes_gratis_acima: settings.portes_gratis_acima !== undefined && settings.portes_gratis_acima !== "" ? money(settings.portes_gratis_acima) : "",
     iban_rosa: settings.iban_rosa || "",
     iban_rita: settings.iban_rita || "",

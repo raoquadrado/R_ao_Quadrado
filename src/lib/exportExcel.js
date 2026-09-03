@@ -3,7 +3,7 @@ import { money, todayISO, fmtDate, displaySku } from "./computations";
 import { computeFullDashboard } from "./dashboardStats";
 import { getTestMode } from "./testMode";
 
-export function exportExcel({ articles, suppliers, articlesComputed, purchases, purchaseItems, clientsComputed, clients, sales, contentItems, encomendas, embalagens, embalagemItens, transformacoes, transformacaoItens, gastosDiversos, movimentosCapital, supplierName, articleName, clientName, tipos }) {
+export function exportExcel({ articles, suppliers, articlesComputed, purchases, purchaseItems, clientsComputed, clients, sales, contentItems, encomendas, embalagens, embalagemItens, transformacoes, transformacaoItens, gastosDiversos, movimentosCapital, metodosEnvio, supplierName, articleName, clientName, tipos }) {
   const wb = XLSX.utils.book_new();
   const emTeste = getTestMode();
 
@@ -107,7 +107,7 @@ export function exportExcel({ articles, suppliers, articlesComputed, purchases, 
         const embalagem = embalagens?.find((emb) => emb.id === e.embalagem_id);
         return {
           Código: e.codigo || "—", Cliente: clientName(e.client_id), "Nº de vendas": nVendas,
-          "Estado do envio": e.estado_envio || "Não Definido", "Método de envio": e.metodo_envio || "—", "Código de envio": e.codigo_envio || "—", "Data de envio": e.data_envio || "—",
+          "Estado do envio": e.estado_envio || "Não Definido", "Método de envio": e.metodo_envio || "—", "Valor de portes (€)": e.valor_portes ? Number(e.valor_portes) : "—", "Código de envio": e.codigo_envio || "—", "Data de envio": e.data_envio || "—",
           Embalagem: embalagem?.nome || "—",
           "Fatura Rosa": e.fatura_rosa || "por emitir", "Fatura Rita": e.fatura_rita || "por emitir", Notas: e.notas || "—",
         };
@@ -156,6 +156,15 @@ export function exportExcel({ articles, suppliers, articlesComputed, purchases, 
       }))
     );
     XLSX.utils.book_append_sheet(wb, wsCapital, "Movimentos de Capital");
+  }
+
+  if (metodosEnvio) {
+    const wsMetodos = XLSX.utils.json_to_sheet(
+      metodosEnvio.filter((m) => !m.deleted_at).map((m) => ({
+        Nome: m.nome, "Valor de portes (€)": Number(m.valor_portes || 0), Ativo: m.ativo === false ? "Não" : "Sim",
+      }))
+    );
+    XLSX.utils.book_append_sheet(wb, wsMetodos, "Métodos de Envio");
   }
 
   if (contentItems) {

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { supabase } from "../supabaseClient";
 import { updateRow, useAuditLogForRecord } from "../lib/useRealtimeTable";
 import { getTestMode } from "../lib/testMode";
-import { SHIPPING_STATUS, SHIPPING_METHODS } from "../lib/constants";
+import { SHIPPING_STATUS } from "../lib/constants";
 import { money, fmtDate, todayISO, sugerirCodigoPorData, displaySku } from "../lib/computations";
 import { uploadDocument, deleteDocument } from "../lib/fileStorage";
 import { useToast, useConfirm } from "../lib/overlays";
@@ -74,7 +74,7 @@ export function EncomendaDetail({ encomendaId, encomendas, sales, clients, artic
         </div>
         <div className="flex gap-2 flex-wrap mt-3">
           <Badge text={e.estado_envio || "Não Definido"} color={sc.color} bg={sc.bg} />
-          {e.metodo_envio && <Badge text={e.metodo_envio} color="#8A8677" bg="#F1EDE3" />}
+          {e.metodo_envio && <Badge text={`${e.metodo_envio}${e.valor_portes ? ` · ${money(e.valor_portes)}` : ""}`} color="#8A8677" bg="#F1EDE3" />}
           {e.codigo_envio && <Badge text={`📮 ${e.codigo_envio}`} color="#8A8677" bg="#F1EDE3" />}
           {embalagemEscolhida && <Badge text={`📦 ${embalagemEscolhida.nome}`} color="#832F72" bg="#F7E3F2" />}
         </div>
@@ -97,8 +97,9 @@ export function EncomendaDetail({ encomendaId, encomendas, sales, clients, artic
       )}
 
       {/* KPIs de custo */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-5">
         <Card label="Total de vendas" value={money(totalVendas)} color="#1C2541" />
+        <Card label="Valor de portes" value={money(e.valor_portes)} color="#254238" />
         <Card label="Gasto em embalamento" value={money(custoEmbalagem)} color="#832F72" />
         <Card label="Gasto em etiquetas" value={money(custoEtiquetas)} color="#832F72" />
         <Card label="Custo total (embalamento + etiquetas)" value={money(custoTotal)} color="#7A2A24" />
@@ -198,14 +199,14 @@ export function EncomendaDetail({ encomendaId, encomendas, sales, clients, artic
 // de vendas selecionadas) como para editar uma já existente (clicando no cabeçalho do
 // grupo). Uma Encomenda tem duas Faturas possíveis (Rosa e Rita), para quando as peças de
 // uma mesma encomenda precisam de ser faturadas por pessoas diferentes.
-export function EncomendaModal({ encomenda, initialSaleIds, fixedClientId, sales, clients, encomendas, embalagens, embalagemItens, articlesComputed, clientName, articleName, onOpenSale, onClose, onSaved }) {
+export function EncomendaModal({ encomenda, initialSaleIds, fixedClientId, sales, clients, encomendas, embalagens, embalagemItens, metodosEnvio, articlesComputed, clientName, articleName, onOpenSale, onClose, onSaved }) {
   const isNew = !encomenda;
   const clientId = encomenda?.client_id || fixedClientId;
   const [f, setF] = useState(encomenda ? { ...encomenda } : {
     id: undefined,
     codigo: sugerirCodigoPorData("ENC", todayISO(), encomendas, "codigo"),
     client_id: clientId,
-    estado_envio: "Não Definido", metodo_envio: "", codigo_envio: "", data_envio: "", embalagem_id: "",
+    estado_envio: "Não Definido", metodo_envio: "", valor_portes: "", codigo_envio: "", data_envio: "", embalagem_id: "",
     fatura_rosa: "", fatura_rosa_url: "", fatura_rita: "", fatura_rita_url: "", notas: "",
   });
   const [incluidas, setIncluidas] = useState(() => new Set(encomenda ? sales.filter((s) => s.encomenda_id === encomenda.id).map((s) => s.id) : (initialSaleIds || [])));
@@ -215,6 +216,14 @@ export function EncomendaModal({ encomenda, initialSaleIds, fixedClientId, sales
   const confirm = useConfirm();
   const notify = useToast();
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+
+  // Ao escolher o método, sugere logo o valor de portes definido nesse método em Definições
+  // — mas fica sempre editável a seguir, para casos pontuais (ex: um desconto).
+  function handleMetodoChange(e) {
+    const nome = e.target.value;
+    const metodo = (metodosEnvio || []).find((m) => m.nome === nome);
+    setF((prev) => ({ ...prev, metodo_envio: nome, valor_portes: metodo ? metodo.valor_portes : prev.valor_portes }));
+  }
 
   const podeAcrescentar = isNew || f.estado_envio === "Em Preparação";
   const vendasJaIncluidas = sales.filter((s) => incluidas.has(s.id));
@@ -274,6 +283,7 @@ export function EncomendaModal({ encomenda, initialSaleIds, fixedClientId, sales
         p_client_id: clientId,
         p_estado_envio: f.estado_envio,
         p_metodo_envio: f.metodo_envio || null,
+        p_valor_portes: f.valor_portes === "" || f.valor_portes === null || f.valor_portes === undefined ? null : Number(f.valor_portes),
         p_codigo_envio: f.codigo_envio || null,
         p_data_envio: f.data_envio || null,
         p_fatura_rosa: f.fatura_rosa || null,
@@ -306,13 +316,14 @@ export function EncomendaModal({ encomenda, initialSaleIds, fixedClientId, sales
           <select className={inputCls} value={f.estado_envio} onChange={set("estado_envio")}>{SHIPPING_STATUS.map((o) => <option key={o}>{o}</option>)}</select>
         </Field>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
         <Field label="Método de envio">
-          <select className={inputCls} value={f.metodo_envio || ""} onChange={set("metodo_envio")}>
+          <select className={inputCls} value={f.metodo_envio || ""} onChange={handleMetodoChange}>
             <option value="">— por definir —</option>
-            {SHIPPING_METHODS.map((o) => <option key={o}>{o}</option>)}
+            {(metodosEnvio || []).filter((m) => m.ativo !== false && !m.deleted_at).map((m) => <option key={m.id} value={m.nome}>{m.nome}</option>)}
           </select>
         </Field>
+        <Field label="Valor de portes (€)"><input type="number" min="0" step="0.01" className={inputCls} value={f.valor_portes ?? ""} onChange={set("valor_portes")} /></Field>
         <Field label="Código de rastreio"><input className={inputCls} value={f.codigo_envio || ""} onChange={set("codigo_envio")} /></Field>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
