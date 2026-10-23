@@ -103,7 +103,7 @@ export function SearchBox({ value, onChange, placeholder }) {
   );
 }
 
-export function TabHeader({ title, sub, btnLabel, onNew, disabled, hasActiveFilters, onClearFilters }) {
+export function TabHeader({ title, sub, btnLabel, onNew, disabled, hasActiveFilters, onClearFilters, extra }) {
   return (
     <div className="flex items-end justify-between mb-4 flex-wrap gap-2">
       <div>
@@ -116,6 +116,7 @@ export function TabHeader({ title, sub, btnLabel, onNew, disabled, hasActiveFilt
             Limpar filtros
           </button>
         )}
+        {extra}
         <Button variant="primary" onClick={onNew} disabled={disabled}>+ {btnLabel}</Button>
       </div>
     </div>

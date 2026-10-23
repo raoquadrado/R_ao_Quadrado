@@ -2086,3 +2086,16 @@ $$;
 
 drop trigger if exists trg_content_mark_published on content_items;
 create trigger trg_content_mark_published after insert or update on content_items for each row execute function mark_article_published();
+
+-- ============================================================
+-- v1.12 — Ficha do artigo para o site (Shopify): composição, cuidados, medidas por tamanho,
+-- "Porque a escolhemos", "Escolha" (Rosa / Rita / Das duas) e "Publicar no site".
+-- A família de medidas (parte de cima, baixo, vestidos, calçado, acessórios) é definida por Tipo de Artigo.
+-- ============================================================
+alter table articles add column if not exists composicao text;
+alter table articles add column if not exists cuidados text;
+alter table articles add column if not exists medidas jsonb not null default '{}'::jsonb;
+alter table articles add column if not exists porque_escolhemos text;
+alter table articles add column if not exists escolha text;
+alter table articles add column if not exists publicar_site boolean not null default false;
+alter table article_tipos add column if not exists familia_medidas text;

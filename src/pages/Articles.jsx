@@ -2,7 +2,8 @@ import { useState, useEffect } from "react";
 import { supabase } from "../supabaseClient";
 import { insertRow, updateRow, deleteRow } from "../lib/useRealtimeTable";
 import { getTestMode } from "../lib/testMode";
-import { OWNERS, opcoesAtivas, nextSkuForCode, DEFAULT_MARGIN_PCT, tagColor, tipoTemTamanho, tipoUsoInterno, tipoEhEtiqueta, tiposAgrupados, ARTICLE_ESTADOS, ARTICLE_ESTADO_COLORS } from "../lib/constants";
+import { OWNERS, opcoesAtivas, nextSkuForCode, DEFAULT_MARGIN_PCT, tagColor, tipoTemTamanho, tipoUsoInterno, tipoEhEtiqueta, tiposAgrupados, ARTICLE_ESTADOS, ARTICLE_ESTADO_COLORS, FAMILIAS_MEDIDAS, ESCOLHAS_SITE, familiaMedidasDoTipo } from "../lib/constants";
+import { descarregarCsvShopify } from "../lib/shopifyExport";
 import { money, pct, displaySku, todayISO, uid } from "../lib/computations";
 import { uploadArticlePhoto, deleteArticlePhoto } from "../lib/photoStorage";
 import { useToast, useConfirm } from "../lib/overlays";
@@ -21,6 +22,7 @@ function emptyArticle(tipos, cores) {
     owner: "Rosa", preco_unitario: 0, preco_medio: 0, iva: 0,
     quantidade: 0, valor_venda: 0, foto_url: "", publicado: false, etiquetado: false, estado: "Novo — Sem compras",
     favorito: false, etiqueta: "", notas: "",
+    composicao: "", cuidados: "", medidas: {}, porque_escolhemos: "", escolha: "", publicar_site: false,
   };
 }
 
@@ -79,6 +81,8 @@ export default function Articles({ articlesComputed, articles, tipos, cores, pad
         favorito: false,
         notas: "",
         tamanho: "",
+        medidas: {},
+        publicar_site: false,
       },
       isNew: true,
     });
@@ -103,6 +107,7 @@ export default function Articles({ articlesComputed, articles, tipos, cores, pad
         estado: "Novo — Sem compras",
         foto_url: "",
         tamanho: "",
+        medidas: {}, // as medidas são por tamanho — preenchem-se de novo
       },
       isNew: true,
       isNewSize: true,
@@ -166,6 +171,17 @@ export default function Articles({ articlesComputed, articles, tipos, cores, pad
     notify(`Preço de venda aplicado: ${money(sugestao)} (margem-alvo ${margemAlvo}%).`);
   }
 
+  function exportarShopify() {
+    const r = descarregarCsvShopify(articlesComputed, tipos);
+    if (r.nProdutos === 0) { notify("Nenhum artigo marcado com “Publicar no site”. Marca-o na ficha do artigo.", "error"); return; }
+    const av = [];
+    if (r.avisos.semPreco.length) av.push(`${r.avisos.semPreco.length} sem preço`);
+    if (r.avisos.semFoto.length) av.push(`${r.avisos.semFoto.length} sem foto`);
+    if (r.avisos.semComposicao.length) av.push(`${r.avisos.semComposicao.length} sem composição`);
+    if (r.avisos.semMedidas.length) av.push(`${r.avisos.semMedidas.length} sem medidas`);
+    notify(`CSV Shopify gerado: ${r.nProdutos} produto(s), ${r.nVariantes} variante(s).${av.length ? " Atenção: " + av.join(", ") + "." : ""}`);
+  }
+
   const rows = articlesComputed
     .filter((a) => (a.sku + a.artigo + a.cor + (a.padrao || "") + (a.tipo || "")).toLowerCase().includes(q.toLowerCase()));
 
@@ -181,6 +197,8 @@ export default function Articles({ articlesComputed, articles, tipos, cores, pad
     interno: (a) => (a.uso_interno ? "Sim" : "Não"),
     estado: (a) => a.estado || "Em stock",
     venda: (a) => (Number(a.valor_venda) > 0 ? "Com preço" : "Sem preço"),
+    escolha: (a) => a.escolha || "Sem escolha",
+    site: (a) => (a.publicar_site ? "Sim" : "Não"),
   };
   const { filterProps, applyFilters, hasActiveFilters, clearAllFilters } = useColumnFilters(
     articlesComputed, filterCols,
@@ -196,6 +214,7 @@ export default function Articles({ articlesComputed, articles, tipos, cores, pad
         btnLabel="Novo artigo"
         onNew={() => setModal({ data: emptyArticle(tipos, cores), isNew: true })}
         hasActiveFilters={hasActiveFilters} onClearFilters={clearAllFilters}
+        extra={<Button variant="default" onClick={exportarShopify} title="Gera o CSV de importação do Shopify com os artigos marcados 'Publicar no site'">🛍️ Exportar para Shopify</Button>}
       />
       <SearchBox value={q} onChange={setQ} placeholder="Procurar por SKU, tipo, artigo, cor ou padrão…" />
       <div className="bg-white border border-line rounded-xl overflow-auto">
@@ -207,7 +226,7 @@ export default function Articles({ articlesComputed, articles, tipos, cores, pad
               <FilterTh label="Etiqueta" {...filterProps("etiqueta")} /><FilterTh label="Cor" {...filterProps("cor")} /><FilterTh label="Padrão" {...filterProps("padrao")} />
               <FilterTh label="Owner" {...filterProps("owner")} /><FilterTh label="Interno" {...filterProps("interno")} />
               <th>Preço un.</th><th>Preço médio</th><th>IVA</th><th>Qtd</th><FilterTh label="Venda" {...filterProps("venda")} /><th>Margem</th><th>Stock atual</th><th>Valor stock</th>
-              <FilterTh label="Publicado" {...filterProps("publicado")} /><FilterTh label="Etiquetado" {...filterProps("etiquetado")} /><FilterTh label="Estado" {...filterProps("estado")} /><th>Conteúdo</th><th></th>
+              <FilterTh label="Publicado" {...filterProps("publicado")} /><FilterTh label="Escolha" {...filterProps("escolha")} /><FilterTh label="No site" {...filterProps("site")} /><FilterTh label="Etiquetado" {...filterProps("etiquetado")} /><FilterTh label="Estado" {...filterProps("estado")} /><th>Conteúdo</th><th></th>
             </tr>
           </thead>
           <tbody>
@@ -254,6 +273,8 @@ export default function Articles({ articlesComputed, articles, tipos, cores, pad
                 <td className={`font-mono font-medium ${a.stockAtual <= 3 ? "text-clay-dark" : ""}`}>{a.stockAtual}</td>
                 <td className="font-mono text-xs">{money(a.valorStockSemIVA)}</td>
                 <td>{a.publicado ? <span className="text-sage-dark">✓ Sim</span> : <span className="text-stone">Não</span>}</td>
+                <td className="text-xs">{a.escolha ? (a.escolha === "Das duas" ? "💜 Das duas" : `Da ${a.escolha}`) : <span className="text-stone">—</span>}</td>
+                <td>{a.publicar_site ? <span className="text-sage-dark">🌐 Sim</span> : <span className="text-stone">Não</span>}</td>
                 <td>
                   <button type="button" onClick={() => toggleEtiquetado(a)} title={a.etiquetado ? "Etiquetado — clicar para desmarcar" : "Não etiquetado — clicar para marcar"} className="text-lg leading-none">
                     {a.etiquetado ? "🟢" : "⚪"}
@@ -536,6 +557,9 @@ function ArticleModal({ data, isNew, isNewSize, articles, tipos, cores, padroes,
           </button>
         </div>
       )}
+      {!tipoUsoInterno(f.tipo, tipos) && (
+        <FichaSite f={f} setF={setF} set={set} tipos={tipos} isNewSize={isNewSize} temTamanho={temTamanho} />
+      )}
       <div className="mb-5">
         <Field label="Notas" span><textarea rows={3} className={isNewSize ? lockedCls : inputCls} value={f.notas || ""} onChange={set("notas")} placeholder="Notas internas sobre este artigo…" disabled={isNewSize} /></Field>
       </div>
@@ -582,5 +606,54 @@ function EtiquetaPickerModal({ article, candidatos, onClose, onConfirm }) {
       </div>
       <ModalActions onClose={onClose} onSave={() => onConfirm(escolhida)} label="Confirmar" />
     </ModalShell>
+  );
+}
+
+
+// Ficha do artigo para o site (Shopify): composição, cuidados, medidas por tamanho, "Porque a escolhemos",
+// "Escolha" e "Publicar no site". As medidas são por tamanho (cada tamanho é uma linha de artigo).
+function FichaSite({ f, setF, set, tipos, isNewSize, temTamanho }) {
+  const familia = familiaMedidasDoTipo(f.tipo, tipos);
+  const fam = FAMILIAS_MEDIDAS[familia];
+  const medidas = f.medidas || {};
+  const setMedida = (k) => (e) => setF({ ...f, medidas: { ...medidas, [k]: e.target.value } });
+  return (
+    <div className="mb-4 border border-line rounded-lg p-3 bg-purple-50">
+      <p className="text-xs font-semibold text-ink mb-2">🌐 Ficha para o site</p>
+      <div className="mb-3 flex items-center gap-2">
+        <input type="checkbox" id="publicar_site" checked={!!f.publicar_site} onChange={(e) => setF({ ...f, publicar_site: e.target.checked })} className="w-4 h-4" />
+        <label htmlFor="publicar_site" className="text-sm text-ink">Publicar no site (entra na exportação para o Shopify)</label>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+        <Field label="Escolha">
+          <select className={isNewSize ? `${inputCls} bg-line/40 text-stone` : inputCls} value={f.escolha || ""} onChange={set("escolha")} disabled={isNewSize}>
+            <option value="">— sem escolha —</option>
+            {ESCOLHAS_SITE.map((e) => <option key={e} value={e}>{e === "Das duas" ? "Das duas" : `Da ${e}`}</option>)}
+          </select>
+        </Field>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+        <Field label="Composição"><textarea rows={2} className={inputCls} value={f.composicao || ""} onChange={set("composicao")} placeholder="ex: 95% algodão, 5% elastano" /></Field>
+        <Field label="Cuidados de lavagem"><textarea rows={2} className={inputCls} value={f.cuidados || ""} onChange={set("cuidados")} placeholder="ex: Lavar a 30°C. Não usar lixívia. Passar a ferro a baixa temperatura." /></Field>
+      </div>
+      <div className="mb-3">
+        <Field label="Porque a escolhemos" span><textarea rows={3} className={inputCls} value={f.porque_escolhemos || ""} onChange={set("porque_escolhemos")} placeholder="Texto curto para o site: o que tem de especial, com que looks combina…" /></Field>
+      </div>
+      {fam ? (
+        <div>
+          <p className="text-[11px] text-stone mb-1.5">Medidas em cm — {fam.label}{temTamanho && f.tamanho ? ` · tamanho ${f.tamanho}` : ""}</p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {fam.campos.map(([k, label]) => (
+              <Field key={k} label={label}>
+                <input type="number" step="0.1" min="0" className={inputCls} value={medidas[k] ?? ""} onChange={setMedida(k)} />
+              </Field>
+            ))}
+          </div>
+          {temTamanho && <p className="text-[11px] text-stone mt-1.5">As medidas são por tamanho: cada tamanho tem a sua ficha. Usa “📏 Novo tamanho” para preencher os outros.</p>}
+        </div>
+      ) : (
+        <p className="text-[11px] text-stone">Sem medidas para este tipo de peça — escolhe a família de medidas em Definições → Tipos de Artigo.</p>
+      )}
+    </div>
   );
 }

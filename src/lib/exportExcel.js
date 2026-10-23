@@ -44,6 +44,9 @@ export function exportExcel({ articles, suppliers, articlesComputed, purchases, 
       "Stock atual": a.stockAtual, "Valor stock s/IVA (€)": Number(a.valorStockSemIVA.toFixed(2)), "Valor stock c/IVA (€)": Number(a.valorStockComIVA.toFixed(2)),
       Publicado: a.publicado ? "Sim" : "Não",
       "Material interno": a.uso_interno ? "Sim" : "Não",
+      "Publicar no site": a.publicar_site ? "Sim" : "Não", Escolha: a.escolha || "",
+      "Composição": a.composicao || "", "Cuidados de lavagem": a.cuidados || "", "Porque a escolhemos": a.porque_escolhemos || "",
+      "Medidas (cm)": Object.entries(a.medidas || {}).filter(([, v]) => v !== "" && v !== null && v !== undefined).map(([k, v]) => `${k}: ${v}`).join(" · "),
     }))
   );
   XLSX.utils.book_append_sheet(wb, wsArticles, "Artigos e Stock");

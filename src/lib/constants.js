@@ -16,7 +16,7 @@ export const DEFAULT_MARGIN_PCT = 55;
 // Valores por defeito, usados até a linha de "settings" carregar da base de dados (ou se
 // ainda não existir) — têm de bater certo com os defaults definidos no schema.sql.
 // ---------- Versão da aplicação ----------
-export const APP_VERSION = "1.11.0";
+export const APP_VERSION = "1.12.0";
 export const APP_RELEASE_DATE = "2026-08-14";
 // Histórico de alterações — a entrada [0] é sempre a mais recente. Cada uma tem "data"
 // (fiável, vem do dia em que a alteração foi feita) e, sempre que a Rosa a fornece
@@ -24,6 +24,7 @@ export const APP_RELEASE_DATE = "2026-08-14";
 // ordem da lista é a ordem em que as alterações foram feitas. Sempre que se pede uma
 // alteração nova, acrescenta-se uma entrada aqui, no topo.
 export const APP_CHANGELOG = [
+  { data: "2026-10-22", hora: "16:00", titulo: "Ficha do artigo para o site + Exportar para Shopify", notas: "Nova secção \"Ficha para o site\" em cada artigo: Publicar no site (sim/não), Escolha (da Rosa / da Rita / das duas, com filtro na lista), Composição, Cuidados de lavagem, \"Porque a escolhemos\" e Medidas em cm por tamanho, com campos conforme o tipo de peça (parte de cima, parte de baixo, vestidos, calçado, acessórios — configurável por Tipo em Definições → Tipos de Artigo, coluna Medidas (site)). Novo botão \"Exportar para Shopify\" na lista de Artigos: gera o CSV de importação com um produto por SKU e uma variante por tamanho, a composição e os cuidados como metafields (custom.composicao, custom.cuidados) e a tabela de medidas dentro da descrição. Base de dados: correr o schema.sql atualizado no Supabase (novas colunas em articles e article_tipos)." },
   { data: "2026-09-03", hora: "08:56", titulo: "Métodos de Envio configuráveis, com valor de portes", notas: "Novo em Definições: cada Método de Envio (ex: \"CTT Correio Azul\") tem o seu próprio valor de portes — substitui a lista fixa antiga e os campos soltos de portes nacionais/internacionais. Ao escolher o método numa Encomenda, o valor é sugerido automaticamente (mas continua editável, para casos pontuais). O Valor de portes fica bem visível na ficha completa da Encomenda, e disponível nas mensagens a clientes como {{portes}}." },
   { data: "2026-08-27", hora: "19:43", titulo: "Barra lateral: Modo de Teste ao pé do Exportar Excel", notas: "O botão \"🧪 Modo de Teste\" sai do topo da barra lateral e passa para baixo, mesmo por cima de \"⭳ Exportar Excel\" — mais perto de onde já se costuma olhar antes de exportar dados. No telemóvel, os ícones ficam também lado a lado." },
   { data: "2026-08-27", hora: "19:40", titulo: "Painel: Saldo em Caixa", notas: "Nova secção em Financeiro: \"🏦 Saldo em Caixa\" — quanto dinheiro há disponível agora (Entradas de capital − Retiradas + Vendas recebidas − Compras − Gastos diversos), sempre conjunto e acumulado desde sempre, diferente do Lucro (que mede rentabilidade por período). Botões \"+ Registar entrada\" e \"− Registar retirada\" para dinheiro que entra/sai do negócio sem ser venda, compra ou gasto diverso." },
@@ -196,6 +197,34 @@ export function tipoUsoInterno(tipoLabel, tipos) {
 
 // Um Tipo marcado "eh_etiqueta" (ex: "Etiquetas") serve para dar baixa de stock quando um
 // artigo vendável é marcado "Peça já etiquetada" (ver ArticleModal / etiqueta_consumos).
+// ---------- Ficha para o site (Shopify): medidas por família de peça ----------
+// Cada Tipo de Artigo pode ter uma "família de medidas" (Definições → Tipos de Artigo). Se não tiver,
+// tenta-se deduzir pelo nome da peça (blusa/camisola → parte de cima, calças/saia → parte de baixo, etc.).
+export const FAMILIAS_MEDIDAS = {
+  cima: { label: "Parte de cima", campos: [["comprimento", "Comprimento"], ["ombros", "Ombros"], ["peito", "Peito"], ["manga", "Manga"]] },
+  baixo: { label: "Parte de baixo", campos: [["cintura", "Cintura"], ["anca", "Anca"], ["comprimento", "Comprimento"], ["entrepernas", "Entrepernas"]] },
+  vestido: { label: "Vestidos", campos: [["ombros", "Ombros"], ["peito", "Peito"], ["cintura", "Cintura"], ["comprimento", "Comprimento"]] },
+  calcado: { label: "Calçado", campos: [["palmilha", "Palmilha"]] },
+  acessorio: { label: "Acessórios", campos: [["largura", "Largura"], ["altura", "Altura"], ["profundidade", "Profundidade"]] },
+};
+export const ESCOLHAS_SITE = ["Rosa", "Rita", "Das duas"];
+
+const PISTAS_FAMILIA = [
+  ["vestido", /vestido|macac|jumpsuit/i],
+  ["calcado", /sapat|sandal|bota|t[eê]nis|cal[cç]ado|botim|mocass/i],
+  ["baixo", /cal[cç]a|saia|short|bermuda|jeans|leggin/i],
+  ["cima", /blusa|camisa|camisola|t-?shirt|top|casaco|blazer|colete|malha|cardigan|kimono|parka|sobretudo/i],
+  ["acessorio", /mala|bolsa|cinto|len[cç]o|chap[eé]u|brinco|colar|pulseira|[oó]culos|carteira|cachecol|bijutaria|acess/i],
+];
+
+export function familiaMedidasDoTipo(tipoLabel, tipos) {
+  const e = tipoEntryFor(tipoLabel, tipos);
+  if (e?.familia_medidas && FAMILIAS_MEDIDAS[e.familia_medidas]) return e.familia_medidas;
+  const texto = `${e?.peca || tipoLabel || ""} ${e?.grupo || ""}`;
+  for (const [fam, re] of PISTAS_FAMILIA) if (re.test(texto)) return fam;
+  return "";
+}
+
 export function tipoEhEtiqueta(tipoLabel, tipos) {
   return !!tipoEntryFor(tipoLabel, tipos)?.eh_etiqueta;
 }

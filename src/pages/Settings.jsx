@@ -3,7 +3,7 @@ import { supabase } from "../supabaseClient";
 import { updateRow, insertRow, deleteRow } from "../lib/useRealtimeTable";
 import { getTestMode } from "../lib/testMode";
 import { uid, displaySku, money } from "../lib/computations";
-import { DEFAULT_SETTINGS, tipoUsoInterno, tipoEhEtiqueta } from "../lib/constants";
+import { DEFAULT_SETTINGS, tipoUsoInterno, tipoEhEtiqueta, FAMILIAS_MEDIDAS } from "../lib/constants";
 import { gerarCopiaSeguranca, descarregarJSON, restaurarCopiaSeguranca } from "../lib/backup";
 import { uploadLogo } from "../lib/photoStorage";
 import { useToast, useConfirm } from "../lib/overlays";
@@ -483,7 +483,7 @@ export default function Settings({ settings, marketingDates, tipos, cores, padro
           </p>
           <div className="overflow-auto mb-3">
             <table>
-              <thead><tr><th>Grupo</th><th>Peça</th><th>Código</th><th>Permite venda?</th><th>Tem tamanho?</th><th>Etiqueta física?</th><th>Ativo</th><th></th></tr></thead>
+              <thead><tr><th>Grupo</th><th>Peça</th><th>Código</th><th>Permite venda?</th><th>Tem tamanho?</th><th>Etiqueta física?</th><th>Medidas (site)</th><th>Ativo</th><th></th></tr></thead>
               <tbody>
                 {tiposOrdenados.length === 0 && (
                   <tr><td colSpan={8} className="text-stone text-sm py-3 text-center">Ainda não há Tipos de artigo definidos.</td></tr>
@@ -516,6 +516,13 @@ export default function Settings({ settings, marketingDates, tipos, cores, padro
                       <button type="button" onClick={() => toggleTipoCampo(t, "eh_etiqueta")} title={t.eh_etiqueta ? "Etiqueta física — clicar para desligar" : "Clicar para marcar como etiqueta física"}>
                         {t.eh_etiqueta ? "🏷️ Sim" : "⬜ Não"}
                       </button>
+                    </td>
+                    <td>
+                      <select className={`${inputCls} !py-1 text-xs`} value={t.familia_medidas || ""} title="Que medidas pedir na ficha deste tipo de peça (para o site)"
+                        onChange={(e) => handleTipoField(t, "familia_medidas", e.target.value || null)}>
+                        <option value="">Automático</option>
+                        {Object.entries(FAMILIAS_MEDIDAS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                      </select>
                     </td>
                     <td>
                       <button type="button" onClick={() => toggleTipoCampo(t, "ativo")} title={t.ativo === false ? "Ativar" : "Desativar"}>

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { updateRow, useAuditLogForRecord } from "../lib/useRealtimeTable";
 import { money, pct, fmtDate, displaySku } from "../lib/computations";
-import { CONTENT_STATUS_COLORS, CONTENT_NETWORK_COLORS, ARTICLE_ESTADO_COLORS, tipoTemTamanho } from "../lib/constants";
+import { CONTENT_STATUS_COLORS, CONTENT_NETWORK_COLORS, ARTICLE_ESTADO_COLORS, tipoTemTamanho, FAMILIAS_MEDIDAS, familiaMedidasDoTipo } from "../lib/constants";
 import { useToast } from "../lib/overlays";
 import { Badge, Card, inputCls, TagBadge } from "../components/ui";
 
@@ -135,6 +135,38 @@ export default function ArticleDetail({
           </div>
         )}
       </Section>
+
+      {/* Ficha para o site */}
+      {!a.uso_interno && (() => {
+        const fam = FAMILIAS_MEDIDAS[familiaMedidasDoTipo(a.tipo, tipos)];
+        const irmaos = articlesComputed.filter((x) => x.sku === a.sku && !x.deleted_at);
+        const vazio = <span className="text-stone">—</span>;
+        return (
+          <Section title="🌐 Ficha para o site" action={<button onClick={() => onEdit(a)} className="text-xs font-medium text-purple-600 underline">Editar</button>}>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm mb-3">
+              <div><p className="text-xs text-stone">Publicar no site</p>{a.publicar_site ? <span className="text-sage-dark">✓ Sim</span> : <span className="text-stone">Não</span>}</div>
+              <div><p className="text-xs text-stone">Escolha</p>{a.escolha ? (a.escolha === "Das duas" ? "Das duas" : `Da ${a.escolha}`) : vazio}</div>
+              <div />
+              <div><p className="text-xs text-stone">Composição</p>{a.composicao || vazio}</div>
+              <div><p className="text-xs text-stone">Cuidados de lavagem</p>{a.cuidados || vazio}</div>
+              <div><p className="text-xs text-stone">Porque a escolhemos</p>{a.porque_escolhemos || vazio}</div>
+            </div>
+            {fam && (
+              <div className="overflow-auto">
+                <p className="text-xs text-stone mb-1">Medidas em cm — {fam.label}</p>
+                <table>
+                  <thead><tr><th>Tamanho</th>{fam.campos.map(([k, l]) => <th key={k}>{l}</th>)}</tr></thead>
+                  <tbody>
+                    {irmaos.sort((x, y) => String(x.tamanho || "").localeCompare(String(y.tamanho || ""), "pt", { numeric: true })).map((x) => (
+                      <tr key={x.id}><td className="font-mono text-xs">{x.tamanho || "—"}</td>{fam.campos.map(([k]) => <td key={k}>{x.medidas?.[k] !== undefined && x.medidas?.[k] !== "" ? String(x.medidas[k]).replace(".", ",") : "—"}</td>)}</tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Section>
+        );
+      })()}
 
       {/* Notas */}
       <Section title="Notas">
