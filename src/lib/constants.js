@@ -16,7 +16,7 @@ export const DEFAULT_MARGIN_PCT = 55;
 // Valores por defeito, usados até a linha de "settings" carregar da base de dados (ou se
 // ainda não existir) — têm de bater certo com os defaults definidos no schema.sql.
 // ---------- Versão da aplicação ----------
-export const APP_VERSION = "1.12.0";
+export const APP_VERSION = "1.12.1";
 export const APP_RELEASE_DATE = "2026-08-14";
 // Histórico de alterações — a entrada [0] é sempre a mais recente. Cada uma tem "data"
 // (fiável, vem do dia em que a alteração foi feita) e, sempre que a Rosa a fornece
@@ -24,6 +24,7 @@ export const APP_RELEASE_DATE = "2026-08-14";
 // ordem da lista é a ordem em que as alterações foram feitas. Sempre que se pede uma
 // alteração nova, acrescenta-se uma entrada aqui, no topo.
 export const APP_CHANGELOG = [
+  { data: "2026-11-20", hora: "09:38", titulo: "Definições: colunas dos Tipos de Artigo legíveis", notas: "Na tabela de Tipos de Artigo, os campos Grupo, Peça e Código (e a coluna Medidas) voltam a ter largura suficiente para se ler o texto; a tabela passa a deslizar na horizontal em ecrãs mais estreitos em vez de espremer as colunas." },
   { data: "2026-10-22", hora: "16:00", titulo: "Ficha do artigo para o site + Exportar para Shopify", notas: "Nova secção \"Ficha para o site\" em cada artigo: Publicar no site (sim/não), Escolha (da Rosa / da Rita / das duas, com filtro na lista), Composição, Cuidados de lavagem, \"Porque a escolhemos\" e Medidas em cm por tamanho, com campos conforme o tipo de peça (parte de cima, parte de baixo, vestidos, calçado, acessórios — configurável por Tipo em Definições → Tipos de Artigo, coluna Medidas (site)). Novo botão \"Exportar para Shopify\" na lista de Artigos: gera o CSV de importação com um produto por SKU e uma variante por tamanho, a composição e os cuidados como metafields (custom.composicao, custom.cuidados) e a tabela de medidas dentro da descrição. Base de dados: correr o schema.sql atualizado no Supabase (novas colunas em articles e article_tipos)." },
   { data: "2026-09-03", hora: "08:56", titulo: "Métodos de Envio configuráveis, com valor de portes", notas: "Novo em Definições: cada Método de Envio (ex: \"CTT Correio Azul\") tem o seu próprio valor de portes — substitui a lista fixa antiga e os campos soltos de portes nacionais/internacionais. Ao escolher o método numa Encomenda, o valor é sugerido automaticamente (mas continua editável, para casos pontuais). O Valor de portes fica bem visível na ficha completa da Encomenda, e disponível nas mensagens a clientes como {{portes}}." },
   { data: "2026-08-27", hora: "19:43", titulo: "Barra lateral: Modo de Teste ao pé do Exportar Excel", notas: "O botão \"🧪 Modo de Teste\" sai do topo da barra lateral e passa para baixo, mesmo por cima de \"⭳ Exportar Excel\" — mais perto de onde já se costuma olhar antes de exportar dados. No telemóvel, os ícones ficam também lado a lado." },
