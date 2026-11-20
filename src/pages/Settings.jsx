@@ -486,20 +486,20 @@ export default function Settings({ settings, marketingDates, tipos, cores, padro
               <thead><tr><th>Grupo</th><th>Peça</th><th>Código</th><th>Permite venda?</th><th>Tem tamanho?</th><th>Etiqueta física?</th><th>Medidas (site)</th><th>Ativo</th><th></th></tr></thead>
               <tbody>
                 {tiposOrdenados.length === 0 && (
-                  <tr><td colSpan={8} className="text-stone text-sm py-3 text-center">Ainda não há Tipos de artigo definidos.</td></tr>
+                  <tr><td colSpan={9} className="text-stone text-sm py-3 text-center">Ainda não há Tipos de artigo definidos.</td></tr>
                 )}
                 {tiposOrdenados.map((t) => (
                   <tr key={t.id} className={t.ativo === false ? "opacity-50" : ""}>
                     <td>
-                      <input list="grupos-existentes" defaultValue={t.grupo} className={`${inputCls} !py-1 text-xs`}
+                      <input list="grupos-existentes" defaultValue={t.grupo} className={`${inputCls} !py-1 text-xs !min-w-[150px]`}
                         onBlur={(e) => handleTipoField(t, "grupo", e.target.value.trim())} />
                     </td>
                     <td>
-                      <input defaultValue={t.peca} className={`${inputCls} !py-1 text-xs`}
+                      <input defaultValue={t.peca} className={`${inputCls} !py-1 text-xs !min-w-[190px]`}
                         onBlur={(e) => handleTipoField(t, "peca", e.target.value.trim())} />
                     </td>
                     <td>
-                      <input defaultValue={t.codigo} className={`${inputCls} !py-1 text-xs font-mono w-20`}
+                      <input defaultValue={t.codigo} className={`${inputCls} !py-1 text-xs font-mono !w-24 !min-w-[96px]`}
                         onBlur={(e) => handleTipoField(t, "codigo", e.target.value.trim().toUpperCase())} />
                     </td>
                     <td>
@@ -518,7 +518,7 @@ export default function Settings({ settings, marketingDates, tipos, cores, padro
                       </button>
                     </td>
                     <td>
-                      <select className={`${inputCls} !py-1 text-xs`} value={t.familia_medidas || ""} title="Que medidas pedir na ficha deste tipo de peça (para o site)"
+                      <select className={`${inputCls} !py-1 text-xs !min-w-[150px]`} value={t.familia_medidas || ""} title="Que medidas pedir na ficha deste tipo de peça (para o site)"
                         onChange={(e) => handleTipoField(t, "familia_medidas", e.target.value || null)}>
                         <option value="">Automático</option>
                         {Object.entries(FAMILIAS_MEDIDAS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
